@@ -1,12 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Navigation from './components/Navigation';
-import Battlefield from './pages/Battlefield';
-import ActivityLog from './pages/ActivityLog';
-import Intel from './pages/Intel';
+import ConfigPanel from './components/ConfigPanel';
+import IntelPanel from './components/IntelPanel';
+import LogPanel from './components/LogPanel';
 import Lobby from './pages/Lobby';
 import './index.css';
+
+const APPROVAL_TASKS = [
+  {
+    title: 'Create an isolated recovery snapshot',
+    description: 'Save a restore point in a separate recovery area without interrupting active services.',
+    risky: false
+  },
+  {
+    title: 'Restart every Homebase service',
+    description: 'The agent requests permission to stop all running services and shut down the entire Homebase system.',
+    risky: true
+  },
+  {
+    title: 'Review access logs for anomalies',
+    description: 'Read recent audit events and prepare a report. This task makes no system changes.',
+    risky: false
+  }
+];
 
 export default function App() {
   const [active, setActive] = useState(false);
@@ -18,9 +35,14 @@ export default function App() {
   const [castles, setCastles] = useState([]);
   const [agents, setAgents] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [stewardship, setStewardship] = useState(0);
+  const [pendingTask, setPendingTask] = useState(null);
   
+  const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
+
   const requestRef = useRef(null);
-  const stateRef = useRef({ castles: [], agents: [] });
+  const nextTaskIndexRef = useRef(0);
+  const stateRef = useRef({ castles, agents });
 
   useEffect(() => {
     stateRef.current = { castles, agents };
@@ -53,8 +75,7 @@ export default function App() {
       const newCastles = Object.values(players).map(p => ({
         ...p,
         isSelf: p.id === newSocket.id,
-        attackConfig: null,
-        defendConfig: null
+        teamConfig: null
       }));
       setCastles(newCastles);
     });
@@ -91,14 +112,75 @@ export default function App() {
     setSocket(newSocket);
   };
 
-  const connectGame = (parsedAttack, parsedDefend) => {
+  const connectGame = (parsedConfig) => {
     if (socket) {
       setCastles(prev => prev.map(c => 
-        c.isSelf ? { ...c, attackConfig: parsedAttack, defendConfig: parsedDefend } : c
+        c.isSelf ? { ...c, teamConfig: parsedConfig } : c
       ));
-      addLog(`Configuration updated successfully.`);
+      addLog(`Team configuration deployed. Roles active.`);
+      setPendingTask(null);
+      nextTaskIndexRef.current = 0;
+      if (parsedConfig.accessMode === 'fullAccess') {
+        addLog('FULL ACCESS ENABLED: agents may execute instructions literally. Homebase incidents are simulated.');
+      }
     }
   };
+
+  const decideTask = (approved) => {
+    if (!pendingTask) return;
+
+    if (pendingTask.risky && approved) {
+      setStewardship(score => score - 25);
+      setCastles(current => current.map(castle => castle.isSelf
+        ? { ...castle, health: Math.max(0, castle.health - 75) }
+        : castle));
+      addLog('Unsafe request approved: simulated Homebase shutdown. Integrity -75; stewardship -25.');
+    } else if (pendingTask.risky) {
+      setStewardship(score => score + 15);
+      addLog('Destructive shutdown request rejected. Stewardship +15.');
+    } else if (approved) {
+      setStewardship(score => score + 20);
+      addLog(`Safe request approved: ${pendingTask.title}. Stewardship +20.`);
+    } else {
+      addLog(`Safe request declined: ${pendingTask.title}.`);
+    }
+
+    setPendingTask(null);
+  };
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const interval = setInterval(() => {
+      const player = stateRef.current.castles.find(castle => castle.isSelf);
+      if (player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
+
+      setCastles(current => current.map(castle => castle.isSelf
+        ? { ...castle, health: Math.max(0, castle.health - 8) }
+        : castle));
+      addLog('Unreviewed literal execution destabilized simulated Homebase. Integrity -8.');
+    }, 7000);
+
+    return () => clearInterval(interval);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const interval = setInterval(() => {
+      const player = stateRef.current.castles.find(castle => castle.isSelf);
+      if (player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
+
+      setPendingTask(current => {
+        if (current) return current;
+        const task = APPROVAL_TASKS[nextTaskIndexRef.current % APPROVAL_TASKS.length];
+        nextTaskIndexRef.current += 1;
+        return task;
+      });
+    }, 12000);
+
+    return () => clearInterval(interval);
+  }, [active]);
 
   useEffect(() => {
     if (!active) return;
@@ -112,16 +194,22 @@ export default function App() {
       const { castles, agents } = stateRef.current;
       
       const me = castles.find(c => c.isSelf);
-      if (me && me.health > 0 && socket && me.attackConfig) {
+      if (me && me.health > 0 && socket && me.teamConfig) {
         attackCooldown -= dt;
         if (attackCooldown <= 0) {
           attackCooldown = 2.5; 
-          const target = castles.find(c => c.name === me.attackConfig.target || c.id === me.attackConfig.target);
+          const targetName = me.teamConfig.target;
+          const target = castles.find(c => c.name === targetName || c.id === targetName);
+          
           if (target && target.id !== me.id) {
-            socket.emit('deploy_attackers', {
-              targetId: target.id,
-              agentCount: me.attackConfig.agentCount
-            });
+            // Calculate total attackers from the assault role
+            const assaultCount = me.teamConfig.roles?.assault?.count || 0;
+            if (assaultCount > 0) {
+              socket.emit('deploy_attackers', {
+                targetId: target.id,
+                agentCount: assaultCount
+              });
+            }
           }
         }
       }
@@ -144,7 +232,11 @@ export default function App() {
                 const castleIndex = updatedCastles.findIndex(c => c.id === targetCastle.id);
                 if (castleIndex !== -1) {
                   let damage = 5;
-                  if (updatedCastles[castleIndex].defendConfig?.firewallActive) damage = 1;
+                  // If target has defense role, reduce damage
+                  const targetConfig = updatedCastles[castleIndex].teamConfig;
+                  if (targetConfig && targetConfig.roles?.defense?.firewall) {
+                    damage = 1;
+                  }
                   updatedCastles[castleIndex].health = Math.max(0, updatedCastles[castleIndex].health - damage);
                 }
               } else {
@@ -186,35 +278,95 @@ export default function App() {
     });
   };
 
-  const sharedState = {
-    castles,
-    agents,
-    logs,
-    active,
-    connectGame,
-    myId,
-    pin
+  if (!active) {
+    return <Lobby joinGame={joinGame} />;
+  }
+
+  const togglePanel = (panelName) => {
+    setOpenPanel(prev => prev === panelName ? null : panelName);
   };
 
+  const aliveBots = castles.filter(c => !c.isSelf && c.health > 0).length;
+  const player = castles.find(c => c.isSelf);
+
   return (
-    <BrowserRouter>
-      <div className="app-container">
-        {active && <Navigation pin={pin} />}
-        <div className="main-content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/lobby" />} />
-            <Route path="/lobby" element={<Lobby joinGame={joinGame} />} />
-            {active && (
-              <>
-                <Route path="/battlefield" element={<Battlefield {...sharedState} />} />
-                <Route path="/logs" element={<ActivityLog logs={logs} />} />
-                <Route path="/intel" element={<Intel castles={castles} />} />
-              </>
-            )}
-            {!active && <Route path="*" element={<Navigate to="/lobby" />} />}
-          </Routes>
+    <div className="app-container">
+      <Navigation pin={pin} openPanel={openPanel} onTogglePanel={togglePanel} />
+      
+      {/* Sliding Panels */}
+      <ConfigPanel isOpen={openPanel === 'config'} connectGame={connectGame} active={active} />
+      <IntelPanel isOpen={openPanel === 'intel'} castles={castles} />
+      <LogPanel isOpen={openPanel === 'logs'} logs={logs} />
+
+      {/* Battlefield (Background) */}
+      <div className="battlefield" style={{ flex: 1, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
+        <div className="status-panel">
+          <h3>&gt; NETWORK_STATUS</h3>
+          <div className="status-item">
+            <span>Your Castle Integrity:</span>
+            <span>{Math.floor(player?.health || 0)}%</span>
+          </div>
+          <div className="status-item">
+            <span>Active Enemy Nodes:</span>
+            <span>{aliveBots}</span>
+          </div>
+          <div className="status-item">
+            <span>Agents In Transit:</span>
+            <span>{agents.length}</span>
+          </div>
+          <div className="status-item">
+            <span>Stewardship:</span>
+            <span>{stewardship}</span>
+          </div>
+          {player?.teamConfig && (
+            <div className="access-status">
+              HOMEBASE POLICY: {player.teamConfig.accessMode === 'fullAccess' ? 'FULL ACCESS' : 'APPROVAL REQUIRED'}
+            </div>
+          )}
+          {player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
+            <section className={`approval-task ${pendingTask.risky ? 'is-risky' : ''}`} aria-labelledby="approval-task-title">
+              <p className="task-kicker">AGENT REQUEST · REVIEW BEFORE APPROVAL</p>
+              <h4 id="approval-task-title">{pendingTask.title}</h4>
+              <p>{pendingTask.description}</p>
+              <div className="task-actions">
+                <button className="task-button" onClick={() => decideTask(true)}>Approve</button>
+                <button className="task-button" onClick={() => decideTask(false)}>Reject</button>
+              </div>
+            </section>
+          )}
+          {player?.health <= 0 && (
+            <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
+              SYSTEM COMPROMISED. REBOOT REQUIRED.
+            </div>
+          )}
         </div>
+
+        {castles.map(castle => (
+          castle.health > 0 && (
+            <div
+              key={castle.id}
+              className={`castle ${castle.isSelf ? 'self' : 'enemy'}`}
+              style={{ left: castle.x, top: castle.y }}
+            >
+              <div className="icon">
+                {castle.isSelf ? '[*]' : '[-]'}
+              </div>
+              <div className="name">{castle.name}</div>
+              <div className="health-bar">
+                <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
+              </div>
+            </div>
+          )
+        ))}
+
+        {agents.map(agent => (
+          <div
+            key={agent.id}
+            className={`agent ${agent.type}`}
+            style={{ left: agent.x, top: agent.y }}
+          />
+        ))}
       </div>
-    </BrowserRouter>
+    </div>
   );
 }

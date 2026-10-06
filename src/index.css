@@ -31,6 +31,26 @@ body {
   overflow: hidden;
 }
 
+.slide-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 250px;
+  width: 400px;
+  background: var(--bg-dark);
+  border-right: 2px solid var(--border-color);
+  padding: 20px;
+  z-index: 90;
+  transform: translateX(-150%);
+  transition: transform 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.slide-panel.open {
+  transform: translateX(0);
+}
+
 .sidebar {
   width: 400px;
   background: var(--bg-dark);
@@ -206,4 +226,88 @@ h1.title {
   font-size: 1.1rem;
   margin-top: 5px;
   font-weight: bold;
+}
+
+.access-control {
+  border: 1px solid var(--border-color);
+  padding: 12px;
+}
+
+.access-control label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.access-control select {
+  width: 100%;
+  padding: 8px;
+  background: #000;
+  border: 1px solid #fff;
+  color: #fff;
+  font: inherit;
+  font-size: 1.2rem;
+}
+
+.access-control p {
+  margin-top: 8px;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.access-status {
+  border-top: 1px solid #777;
+  border-bottom: 1px solid #777;
+  padding: 7px 0;
+  margin: 4px 0 10px;
+  font-size: 1.05rem;
+}
+
+.approval-task {
+  border: 1px solid #8fd3a8;
+  padding: 10px;
+  margin-top: 8px;
+  background: #07120b;
+}
+
+.approval-task.is-risky {
+  border-color: #ff7676;
+  background: #190808;
+}
+
+.task-kicker {
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+}
+
+.approval-task h4 {
+  font-size: 1.15rem;
+  margin-bottom: 6px;
+}
+
+.approval-task > p:not(.task-kicker) {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.task-button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid #fff;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.task-button:hover {
+  background: #fff;
+  color: #000;
 }
