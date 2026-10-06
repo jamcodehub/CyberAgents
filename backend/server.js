@@ -17,6 +17,23 @@ const io = new Server(server, {
 // Map of pin -> map of socket.id -> player data
 let games = {};
 
+// Codenames handed out to players (unique within a lobby)
+const AGENT_NAMES = [
+  'Cipher', 'Phantom', 'Vector', 'Packet', 'Kernel', 'Daemon', 'Proxy', 'Beacon', 'Sentinel', 'Honeypot',
+  'Payload', 'Bytecode', 'Firewall', 'Gateway', 'Sandbox', 'Token', 'Hash', 'Socket', 'Syntax', 'Binary',
+  'Pixel', 'Quantum', 'Matrix', 'Nexus', 'Oracle', 'Raven', 'Shadow', 'Spectre', 'Tracer', 'Viper'
+];
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+function assignAgentName(room) {
+  const taken = new Set(Object.values(room || {}).map(p => p.name));
+  const free = AGENT_NAMES.filter(n => !taken.has(n));
+  if (free.length > 0) return free[Math.floor(Math.random() * free.length)];
+  // Fallback if all 30 are in use
+  return `Agent-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
@@ -26,6 +43,12 @@ io.on('connection', (socket) => {
     if (!pin) return;
     
     const isHost = data.isHost === true;
+
+    // A host needs a fresh pin
+    if (isHost && games[pin]) {
+      socket.emit('join_error', { message: 'That pin is already in use. Try again.' });
+      return;
+    }
     const roomHasHost = games[pin] && Object.values(games[pin]).some(p => p.isHost);
 
     // Joiners need an existing lobby that still has a host
@@ -41,12 +64,13 @@ io.on('connection', (socket) => {
       games[pin] = {};
     }
 
-    const safeName = String(data.name || `Agent-${socket.id.substring(0, 4)}`).substring(0, 20);
     games[pin][socket.id] = {
       id: socket.id,
-      name: safeName,
+      name: isHost ? 'Host' : assignAgentName(games[pin]),
       health: 100,
       isHost,
+      spectator: isHost, // hosts watch and manage; they have no base
+      color: null,
       alliance: null,
       swarm: null,
       x: Math.random() * 800 + 100,
@@ -68,6 +92,8 @@ io.on('connection', (socket) => {
     const player = games[pin][socket.id];
     if (!player) return;
 
+    if (player.spectator) return;
+
     const alliance = typeof data?.alliance === 'string'
       ? data.alliance.trim().substring(0, 20) || null
       : null;
@@ -76,9 +102,32 @@ io.on('connection', (socket) => {
       ? { red: clamp(data.swarm.red), blue: clamp(data.swarm.blue) }
       : null;
 
+    // Alliance members share one color: keep the teammates' color, or use the founder's pick
+    const teammate = alliance
+      ? Object.values(games[pin]).find(p => p.id !== socket.id && p.alliance === alliance)
+      : null;
+    const picked = HEX_COLOR.test(data?.color) ? data.color : null;
+    const color = alliance ? (teammate?.color ?? picked) : null;
+
     player.alliance = alliance;
     player.swarm = swarm;
-    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm });
+    player.color = color;
+    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color });
+  });
+
+  // Change the color of the whole alliance
+  socket.on('set_alliance_color', (data) => {
+    const pin = socket.pin;
+    if (!pin || !games[pin]) return;
+
+    const player = games[pin][socket.id];
+    if (!player || player.spectator || !player.alliance) return;
+    if (!HEX_COLOR.test(data?.color)) return;
+
+    Object.values(games[pin]).forEach(p => {
+      if (p.alliance === player.alliance) p.color = data.color;
+    });
+    io.to(pin).emit('alliance_color', { alliance: player.alliance, color: data.color });
   });
 
   // Handle player sending attackers
@@ -89,9 +138,11 @@ io.on('connection', (socket) => {
     const player = games[pin][socket.id];
     if (!player) return;
 
+    if (player.spectator) return;
+
     // Allies never attack each other
     const target = games[pin][data.targetId];
-    if (!target || target.id === player.id) return;
+    if (!target || target.id === player.id || target.spectator) return;
     if (player.alliance && player.alliance === target.alliance) return;
 
     // Rate limiting: max 1 attack per 2 seconds
@@ -115,9 +166,18 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
     const pin = socket.pin;
     if (pin && games[pin]) {
+      const leaving = games[pin][socket.id];
       delete games[pin][socket.id];
       io.to(pin).emit('player_left', socket.id);
-      
+
+      // If the host leaves, the game ends for everyone
+      if (leaving && leaving.isHost) {
+        io.to(pin).emit('host_left');
+        io.in(pin).socketsLeave(pin);
+        delete games[pin];
+        return;
+      }
+
       // Cleanup empty games
       if (Object.keys(games[pin]).length === 0) {
         delete games[pin];

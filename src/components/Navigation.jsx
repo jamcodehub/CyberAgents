@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 
-const ITEMS = [
-  { panel: null, label: '[1] Battlefield' },
-  { panel: 'config', label: '[2] Agent Config' },
-  { panel: 'intel', label: '[3] Threat Intel' },
-  { panel: 'logs', label: '[4] Activity Logs' },
-  { panel: 'alliances', label: '[5] Alliances' }
-];
+const LABELS = {
+  battlefield: 'Battlefield',
+  config: 'Agent Config',
+  intel: 'Threat Intel',
+  logs: 'Activity Logs',
+  alliances: 'Alliances'
+};
 
 const buttonStyle = (selected, dashed = false) => ({
   color: selected ? '#000' : '#fff',
@@ -21,15 +21,31 @@ const buttonStyle = (selected, dashed = false) => ({
   textAlign: 'left'
 });
 
-export default function Navigation({ pin, openPanel, onTogglePanel, onLeave }) {
+export default function Navigation({
+  pin,
+  openPanel,
+  onTogglePanel,
+  onLeave,
+  isHost = false,
+  panels = [null, 'config', 'intel', 'logs', 'alliances']
+}) {
   const [showPin, setShowPin] = useState(false);
+  const items = panels.map((panel, i) => ({
+    panel,
+    label: `[${i + 1}] ${LABELS[panel ?? 'battlefield']}`
+  }));
+
+  const handleLeave = () => {
+    if (isHost && !window.confirm('Leaving ends the game for everyone. Continue?')) return;
+    onLeave();
+  };
 
   return (
     <>
       <div className="sidebar" style={{ width: '250px', zIndex: 100, position: 'relative' }}>
         <h1 className="title" style={{ fontSize: '1.8rem' }}>&gt;_ MENU</h1>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
-          {ITEMS.map(item => (
+          {items.map(item => (
             <button
               key={item.label}
               onClick={() => onTogglePanel(item.panel)}
@@ -40,8 +56,8 @@ export default function Navigation({ pin, openPanel, onTogglePanel, onLeave }) {
           ))}
         </div>
 
-        <button onClick={onLeave} style={{ ...buttonStyle(false, true), marginTop: 'auto' }}>
-          &lt;- Back to Lobby
+        <button onClick={handleLeave} style={{ ...buttonStyle(false, true), marginTop: 'auto' }}>
+          {isHost ? '<- End Game' : '<- Back to Lobby'}
         </button>
 
         <div style={{ marginTop: '20px', borderTop: '1px solid #fff', paddingTop: '20px', fontSize: '1rem', lineHeight: '1.5' }}>
@@ -52,7 +68,7 @@ export default function Navigation({ pin, openPanel, onTogglePanel, onLeave }) {
             title="Click to enlarge"
           >{pin}</span><br/>
           ENCRYPTION: AES-256<br/>
-          KEYS: 1-5 MENUS, ESC CLOSE<br/>
+          KEYS: 1-{panels.length} MENUS, ESC CLOSE<br/>
           V: 2.0.0
         </div>
       </div>

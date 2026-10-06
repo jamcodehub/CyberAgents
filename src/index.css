@@ -562,3 +562,54 @@ h1.title {
   opacity: 0.4;
   cursor: default;
 }
+
+/* Alliance colors */
+.castle.allied .icon {
+  border-color: var(--base-color);
+  color: var(--base-color);
+  box-shadow: 0 0 8px var(--base-color);
+}
+
+.castle.allied .name {
+  color: var(--base-color);
+}
+
+.castle.allied .health-bar {
+  border-color: var(--base-color);
+}
+
+.castle.allied .health-fill {
+  background: var(--base-color);
+}
+
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid #555;
+  cursor: pointer;
+}
+
+.swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff;
+}
+
+.swatch:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.alliance-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+}

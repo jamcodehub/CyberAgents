@@ -4,7 +4,7 @@ import Navigation from './components/Navigation';
 import ConfigPanel from './components/ConfigPanel';
 import IntelPanel from './components/IntelPanel';
 import LogPanel from './components/LogPanel';
-import AlliancePanel from './components/AlliancePanel';
+import AlliancePanel, { ALLIANCE_COLORS } from './components/AlliancePanel';
 import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
 import './index.css';
@@ -40,6 +40,7 @@ export default function App() {
   const [stewardship, setStewardship] = useState(0);
   const [pendingTask, setPendingTask] = useState(null);
   const [lobbyError, setLobbyError] = useState('');
+  const [isHost, setIsHost] = useState(false);
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
 
@@ -58,9 +59,9 @@ export default function App() {
     });
   };
 
-  const joinGame = (name, gamePin, isHost = false) => {
-    setPlayerName(name);
+  const joinGame = (gamePin, isHost = false) => {
     setPin(gamePin);
+    setIsHost(isHost);
     setLobbyError('');
 
     if (socket) socket.disconnect();
@@ -69,6 +70,7 @@ export default function App() {
     const newSocket = io(backendUrl);
     let entered = false;
     let joinTimer = null;
+    let named = false;
 
     const rejectJoin = (message) => {
       clearTimeout(joinTimer);
@@ -77,13 +79,19 @@ export default function App() {
       setPin(null);
       setActive(false);
       setCastles([]);
+      setAgents([]);
+      setLogs([]);
+      setStewardship(0);
+      setPendingTask(null);
+      setOpenPanel(null);
+      setIsHost(false);
       setLobbyError(message);
     };
 
     newSocket.on('connect', () => {
       setMyId(newSocket.id);
-      newSocket.emit('join_game', { name, pin: gamePin, isHost });
-      addLog(`Connected to network [${gamePin}] as ${name}`);
+      newSocket.emit('join_game', { pin: gamePin, isHost });
+      addLog(`Connected to network [${gamePin}]`);
       if (isHost) {
         entered = true;
         setActive(true);
@@ -99,7 +107,8 @@ export default function App() {
       if (!entered) rejectJoin('Cannot reach the server. Try again.');
     });
 
-    newSocket.on('join_error', () => rejectJoin('Enter a valid pin code.'));
+    newSocket.on('join_error', (e) => rejectJoin(e?.message || 'Enter a valid pin code.'));
+    newSocket.on('host_left', () => rejectJoin('The host ended the game.'));
 
     newSocket.on('game_state', (players) => {
       const list = Object.values(players);
@@ -113,20 +122,27 @@ export default function App() {
         clearTimeout(joinTimer);
         setActive(true);
       }
+      const me = list.find(p => p.id === newSocket.id);
+      if (me && !named) {
+        named = true;
+        addLog(`Assigned codename: ${me.name}`);
+      }
       const previous = stateRef.current.castles;
-      setCastles(list.map(p => {
+      setCastles(list.filter(p => !p.spectator).map(p => {
         const prev = previous.find(c => c.id === p.id);
         return {
           ...p,
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null,
           alliance: p.alliance ?? prev?.alliance ?? null,
+          color: p.color ?? prev?.color ?? null,
           swarm: p.swarm ?? prev?.swarm ?? null
         };
       }));
     });
 
     newSocket.on('player_joined', (player) => {
+      if (player.spectator) return;
       setCastles(prev => [...prev.filter(c => c.id !== player.id), { ...player, isSelf: false }]);
       addLog(`Entity joined the network: ${player.name}`);
     });
@@ -139,9 +155,19 @@ export default function App() {
       });
     });
 
-    newSocket.on('player_updated', ({ id, alliance, swarm }) => {
+    newSocket.on('player_updated', ({ id, alliance, swarm, color }) => {
       if (id === newSocket.id) return;
-      setCastles(prev => prev.map(c => c.id === id ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null } : c));
+      const before = stateRef.current.castles.find(c => c.id === id);
+      if (isHost && before && (before.alliance ?? null) !== (alliance ?? null)) {
+        addLog(alliance ? `${before.name} joined alliance ${alliance}.` : `${before.name} left alliance ${before.alliance}.`);
+      }
+      setCastles(prev => prev.map(c => c.id === id
+        ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null }
+        : c));
+    });
+
+    newSocket.on('alliance_color', ({ alliance, color }) => {
+      setCastles(prev => prev.map(c => c.alliance === alliance ? { ...c, color } : c));
     });
 
     newSocket.on('attack_launched', (data) => {
@@ -157,6 +183,8 @@ export default function App() {
           addLog(`WARNING: Incoming attack from ${attacker.name}! (${agentCount} agents)`);
         } else if (attackerId === newSocket.id) {
           addLog(`Deployed ${agentCount} agents to attack ${target.name}.`);
+        } else if (isHost) {
+          addLog(`${attacker.name} sent ${agentCount} agents at ${target.name}.`);
         }
       }
     });
@@ -171,16 +199,28 @@ export default function App() {
     socket.emit('player_update', {
       alliance: me?.alliance ?? null,
       swarm: me?.swarm ?? null,
+      color: me?.color ?? null,
       ...overrides
     });
   };
 
-  const setMyAlliance = (alliance) => {
-    setCastles(prev => prev.map(c => c.isSelf ? { ...c, alliance } : c));
-    broadcastSelf({ alliance });
+  const setMyAlliance = (alliance, pickedColor) => {
+    const teammate = alliance
+      ? stateRef.current.castles.find(c => !c.isSelf && c.alliance === alliance)
+      : null;
+    const color = alliance ? (teammate?.color ?? pickedColor ?? ALLIANCE_COLORS[0]) : null;
+    setCastles(prev => prev.map(c => c.isSelf ? { ...c, alliance, color } : c));
+    broadcastSelf({ alliance, color });
     addLog(alliance
       ? `Joined alliance ${alliance}. Allied bases will not attack each other.`
       : 'Left alliance.');
+  };
+
+  const setAllianceColor = (color) => {
+    const me = stateRef.current.castles.find(c => c.isSelf);
+    if (!me?.alliance) return;
+    setCastles(prev => prev.map(c => c.alliance === me.alliance ? { ...c, color } : c));
+    if (socket) socket.emit('set_alliance_color', { color });
   };
 
   const leaveGame = () => {
@@ -189,6 +229,7 @@ export default function App() {
     setActive(false);
     setPin(null);
     setMyId(null);
+    setIsHost(false);
     setCastles([]);
     setAgents([]);
     setLogs([]);
@@ -342,9 +383,25 @@ export default function App() {
     return () => cancelAnimationFrame(requestRef.current);
   }, [active, socket]);
 
+  // Hosts spectate: no agent config, and menus are numbered by what is available
+  const panelOrder = isHost
+    ? [null, 'intel', 'logs', 'alliances']
+    : [null, 'config', 'intel', 'logs', 'alliances'];
+
+  // When your base is destroyed, return to the lobby so you can rejoin as a new agent
+  const selfDestroyed = castles.some(c => c.isSelf && c.health <= 0);
+  useEffect(() => {
+    if (!active || !selfDestroyed) return undefined;
+    const timer = setTimeout(() => {
+      leaveGame();
+      setLobbyError('Your base was destroyed. Join again as a new agent.');
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [active, selfDestroyed]);
+
   useEffect(() => {
     if (!active) return undefined;
-    const PANEL_KEYS = { '1': null, '2': 'config', '3': 'intel', '4': 'logs', '5': 'alliances' };
+    const PANEL_KEYS = Object.fromEntries(panelOrder.map((panel, i) => [String(i + 1), panel]));
 
     const onKeyDown = (event) => {
       if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
@@ -362,7 +419,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active]);
+  }, [active, isHost]);
 
   const spawnAgents = (ownerId, targetId, x, y, count, type) => {
     setAgents(prev => {
@@ -394,33 +451,42 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <Navigation pin={pin} openPanel={openPanel} onTogglePanel={togglePanel} onLeave={leaveGame} />
+      <Navigation pin={pin} openPanel={openPanel} onTogglePanel={togglePanel} onLeave={leaveGame} panels={panelOrder} isHost={isHost} />
       
       {/* Sliding Panels */}
-      <ConfigPanel
-        isOpen={openPanel === 'config'}
-        connectGame={connectGame}
-        active={active}
-        players={castles.filter(c => !c.isSelf)}
-        myAlliance={player?.alliance ?? null}
-      />
-      <IntelPanel isOpen={openPanel === 'intel'} castles={castles} />
+      {!isHost && (
+        <ConfigPanel
+          isOpen={openPanel === 'config'}
+          connectGame={connectGame}
+          active={active}
+          players={castles.filter(c => !c.isSelf)}
+          myAlliance={player?.alliance ?? null}
+        />
+      )}
+      <IntelPanel isOpen={openPanel === 'intel'} castles={castles} spectator={isHost} />
       <LogPanel isOpen={openPanel === 'logs'} logs={logs} />
       <AlliancePanel
         isOpen={openPanel === 'alliances'}
         castles={castles}
         myAlliance={player?.alliance ?? null}
+        myColor={player?.color ?? null}
         onSetAlliance={setMyAlliance}
+        onSetAllianceColor={setAllianceColor}
+        spectator={isHost}
       />
 
       {/* Battlefield (Background) */}
       <div className="battlefield" style={{ flex: 1, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
         <div className="status-panel">
           <h3>&gt; NETWORK_STATUS</h3>
-          <div className="status-item">
-            <span>Your Castle Integrity:</span>
-            <span>{Math.floor(player?.health || 0)}%</span>
-          </div>
+          {isHost ? (
+            <div className="access-status">HOST: SPECTATING</div>
+          ) : (
+            <div className="status-item">
+              <span>Your Castle Integrity:</span>
+              <span>{Math.floor(player?.health || 0)}%</span>
+            </div>
+          )}
           <div className="status-item">
             <span>Active Enemy Nodes:</span>
             <span>{aliveBots}</span>
@@ -429,10 +495,12 @@ export default function App() {
             <span>Agents In Transit:</span>
             <span>{agents.length}</span>
           </div>
-          <div className="status-item">
-            <span>Stewardship:</span>
-            <span>{stewardship}</span>
-          </div>
+          {!isHost && (
+            <div className="status-item">
+              <span>Stewardship:</span>
+              <span>{stewardship}</span>
+            </div>
+          )}
           {player?.teamConfig && (
             <div className="access-status">
               HOMEBASE POLICY: {player.teamConfig.accessMode === 'fullAccess' ? 'FULL ACCESS' : 'APPROVAL REQUIRED'}
@@ -454,7 +522,7 @@ export default function App() {
           )}
           {player?.health <= 0 && (
             <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
-              SYSTEM COMPROMISED. REBOOT REQUIRED.
+              BASE DESTROYED. RETURNING TO LOBBY...
             </div>
           )}
         </div>
@@ -463,8 +531,8 @@ export default function App() {
           castle.health > 0 && (
             <div
               key={castle.id}
-              className={`castle ${castle.isSelf ? 'self' : 'enemy'}`}
-              style={{ left: castle.x, top: castle.y }}
+              className={`castle ${castle.isSelf ? 'self' : 'enemy'} ${castle.color ? 'allied' : ''}`}
+              style={{ left: castle.x, top: castle.y, '--base-color': castle.color || undefined }}
             >
               <div className="icon">
                 {castle.isSelf ? '[*]' : '[-]'}

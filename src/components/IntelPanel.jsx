@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function IntelPanel({ isOpen, castles }) {
+export default function IntelPanel({ isOpen, castles, spectator = false }) {
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>
       <h2 style={{ borderBottom: '2px solid #fff', paddingBottom: '10px', marginBottom: '20px', textTransform: 'uppercase' }}>
@@ -13,7 +13,7 @@ export default function IntelPanel({ isOpen, castles }) {
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>STATUS</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>NODE NAME</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>INTEGRITY</th>
-            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>AFFILIATION</th>
+            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>{spectator ? 'ALLIANCE' : 'AFFILIATION'}</th>
           </tr>
         </thead>
         <tbody>
@@ -29,7 +29,7 @@ export default function IntelPanel({ isOpen, castles }) {
                 {Math.floor(c.health)}%
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
-                {c.isSelf ? 'FRIENDLY' : 'HOSTILE'}
+                {spectator ? (c.alliance || '-') : (c.isSelf ? 'FRIENDLY' : 'HOSTILE')}
               </td>
             </tr>
           ))}
