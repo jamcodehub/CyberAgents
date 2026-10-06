@@ -1,213 +1,173 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
+import Navigation from './components/Navigation';
+import Battlefield from './pages/Battlefield';
+import ActivityLog from './pages/ActivityLog';
+import Intel from './pages/Intel';
+import Lobby from './pages/Lobby';
 import './index.css';
 
-// Initial "broken" configs for the user
-const INITIAL_ATTACK_CONFIG = `{
-  "target": "null", // Fix me! Set to "ALL" or specific enemy
-  "agentCount": 0, // Fix me! Needs more than 0
-  "payloadType": "DDoS",
-  "stealthMode": false
-}`;
-
-const INITIAL_DEFEND_CONFIG = `{
-  "firewallActive": false, // Fix me! Turn on firewall
-  "patrolRadius": 10,
-  "defendersCount": 0 // Fix me! Need defenders
-}`;
-
-// Mock player names
-const PLAYER_NAMES = ["Neo", "Trinity", "Morpheus", "Cipher", "Ghost", "ZeroCool", "AcidBurn", "CrashOverride", "Strider", "Phantom", "CerealKiller", "Plague", "Dade", "Kate", "Joey", "Paul", "Razer", "Blade", "Laser", "Blazer", "Taser", "Maser", "Phaser", "Gazer", "Crazer"];
-
 export default function App() {
-  const [attackConfig, setAttackConfig] = useState(INITIAL_ATTACK_CONFIG);
-  const [defendConfig, setDefendConfig] = useState(INITIAL_DEFEND_CONFIG);
-
-  const [configError, setConfigError] = useState("");
   const [active, setActive] = useState(false);
-
+  const [socket, setSocket] = useState(null);
+  const [myId, setMyId] = useState(null);
+  const [pin, setPin] = useState(null);
+  const [playerName, setPlayerName] = useState('');
+  
   const [castles, setCastles] = useState([]);
   const [agents, setAgents] = useState([]);
-
-  const battlefieldRef = useRef(null);
+  const [logs, setLogs] = useState([]);
+  
   const requestRef = useRef(null);
+  const stateRef = useRef({ castles: [], agents: [] });
 
-  // Initialize castles
   useEffect(() => {
-    const initCastles = () => {
-      const newCastles = [];
-      const padding = 100;
-      const width = window.innerWidth - 400; // subtract sidebar
-      const height = window.innerHeight;
+    stateRef.current = { castles, agents };
+  }, [castles, agents]);
 
-      // Add player castle
-      newCastles.push({
-        id: 'player',
-        name: 'YOUR CASTLE',
-        x: width / 2,
-        y: height / 2,
-        health: 100,
-        isSelf: true,
+  const addLog = (msg) => {
+    setLogs(prev => {
+      const newLogs = [{ time: new Date().toLocaleTimeString(), msg }, ...prev];
+      return newLogs.slice(0, 100); 
+    });
+  };
+
+  const joinGame = (name, gamePin) => {
+    setPlayerName(name);
+    setPin(gamePin);
+    
+    if (socket) socket.disconnect();
+    
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const newSocket = io(backendUrl);
+    
+    newSocket.on('connect', () => {
+      setMyId(newSocket.id);
+      newSocket.emit('join_game', { name, pin: gamePin });
+      addLog(`Connected to network [${gamePin}] as ${name}`);
+      setActive(true);
+    });
+
+    newSocket.on('game_state', (players) => {
+      const newCastles = Object.values(players).map(p => ({
+        ...p,
+        isSelf: p.id === newSocket.id,
         attackConfig: null,
         defendConfig: null
-      });
-
-      // Add 25 bot castles
-      for (let i = 0; i < 25; i++) {
-        // avoid overlap with center roughly
-        let cx, cy;
-        do {
-          cx = padding + Math.random() * (width - padding * 2);
-          cy = padding + Math.random() * (height - padding * 2);
-        } while (Math.abs(cx - width / 2) < 150 && Math.abs(cy - height / 2) < 150);
-
-        newCastles.push({
-          id: `bot-${i}`,
-          name: PLAYER_NAMES[i],
-          x: cx,
-          y: cy,
-          health: 100,
-          isSelf: false,
-          attackCooldown: Math.random() * 100,
-          defendConfig: { firewallActive: true, patrolRadius: 40, defendersCount: 5 }
-        });
-      }
+      }));
       setCastles(newCastles);
-    };
-    initCastles();
+    });
 
-    // Handle resize
-    const handleResize = () => initCastles();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    newSocket.on('player_joined', (player) => {
+      setCastles(prev => [...prev.filter(c => c.id !== player.id), { ...player, isSelf: false }]);
+      addLog(`Entity joined the network: ${player.name}`);
+    });
 
-  const handleDeploy = () => {
-    try {
-      const parsedAttack = JSON.parse(attackConfig);
-      const parsedDefend = JSON.parse(defendConfig);
+    newSocket.on('player_left', (playerId) => {
+      setCastles(prev => {
+        const p = prev.find(c => c.id === playerId);
+        if (p) addLog(`Entity disconnected: ${p.name}`);
+        return prev.filter(c => c.id !== playerId);
+      });
+    });
 
-      if (parsedAttack.target === "null" || parsedAttack.agentCount === 0) {
-        throw new Error("Attack config is ineffective. Change target and agentCount.");
+    newSocket.on('attack_launched', (data) => {
+      const { attackerId, targetId, agentCount } = data;
+      const { castles } = stateRef.current;
+      const attacker = castles.find(c => c.id === attackerId);
+      const target = castles.find(c => c.id === targetId);
+      
+      if (attacker && target) {
+        spawnAgents(attackerId, targetId, attacker.x, attacker.y, agentCount, 'attacker');
+        if (targetId === newSocket.id) {
+          addLog(`WARNING: Incoming attack from ${attacker.name}! (${agentCount} agents)`);
+        } else if (attackerId === newSocket.id) {
+          addLog(`Deployed ${agentCount} agents to attack ${target.name}.`);
+        }
       }
-      if (parsedAttack.agentCount > 50) {
-        throw new Error("Resource limit exceeded. Maximum agentCount is 50.");
-      }
-      if (!parsedDefend.firewallActive || parsedDefend.defendersCount === 0) {
-        throw new Error("Defend config is vulnerable. Enable firewall and add defenders.");
-      }
+    });
 
-      setConfigError("");
-      setActive(true);
+    setSocket(newSocket);
+  };
 
-      // Update player config
-      setCastles(prev => prev.map(c =>
+  const connectGame = (parsedAttack, parsedDefend) => {
+    if (socket) {
+      setCastles(prev => prev.map(c => 
         c.isSelf ? { ...c, attackConfig: parsedAttack, defendConfig: parsedDefend } : c
       ));
-
-    } catch (e) {
-      setConfigError(e.message || "Invalid JSON syntax.");
-      setActive(false);
+      addLog(`Configuration updated successfully.`);
     }
   };
 
-  // Game Loop
   useEffect(() => {
     if (!active) return;
-
     let lastTime = performance.now();
+    let attackCooldown = 0;
 
     const update = (time) => {
       const dt = (time - lastTime) / 1000;
       lastTime = time;
-
-      setCastles(prevCastles => {
-        let newCastles = [...prevCastles];
-
-        // Bots spawn attacks randomly
-        newCastles.forEach(c => {
-          if (!c.isSelf && c.health > 0) {
-            c.attackCooldown -= dt * 10;
-            if (c.attackCooldown <= 0) {
-              c.attackCooldown = 50 + Math.random() * 100;
-              // Target a random other castle, preferably the player sometimes
-              const targets = newCastles.filter(tc => tc.id !== c.id && tc.health > 0);
-              if (targets.length > 0) {
-                let target = targets[Math.floor(Math.random() * targets.length)];
-                if (Math.random() < 0.2) target = newCastles.find(tc => tc.isSelf) || target;
-
-                // Spawn attackers
-                spawnAgents(c.id, target.id, c.x, c.y, 3, 'attacker');
-              }
-            }
-          }
-        });
-
-        // Player spawns attacks
-        const player = newCastles.find(c => c.isSelf);
-        if (player && player.health > 0 && player.attackConfig) {
-          player.attackCooldown = (player.attackCooldown || 0) - dt * 10;
-          if (player.attackCooldown <= 0) {
-            player.attackCooldown = 40; // faster than bots
-            const targets = newCastles.filter(tc => !tc.isSelf && tc.health > 0);
-            if (targets.length > 0) {
-              const target = targets[Math.floor(Math.random() * targets.length)];
-              const safeCount = Math.min(player.attackConfig.agentCount, 50);
-              spawnAgents(player.id, target.id, player.x, player.y, safeCount, 'attacker');
-            }
+      
+      const { castles, agents } = stateRef.current;
+      
+      const me = castles.find(c => c.isSelf);
+      if (me && me.health > 0 && socket && me.attackConfig) {
+        attackCooldown -= dt;
+        if (attackCooldown <= 0) {
+          attackCooldown = 2.5; 
+          const target = castles.find(c => c.name === me.attackConfig.target || c.id === me.attackConfig.target);
+          if (target && target.id !== me.id) {
+            socket.emit('deploy_attackers', {
+              targetId: target.id,
+              agentCount: me.attackConfig.agentCount
+            });
           }
         }
+      }
 
-        return newCastles;
-      });
-
-      setAgents(prevAgents => {
-        let newAgents = [];
-
-        setCastles(currentCastles => {
-          let updatedCastles = [...currentCastles];
-
-          prevAgents.forEach(agent => {
-            const targetCastle = updatedCastles.find(c => c.id === agent.targetId);
-            if (!targetCastle || targetCastle.health <= 0) return; // Agent dies if target is dead
-
-            const dx = targetCastle.x - agent.x;
-            const dy = targetCastle.y - agent.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-
-            if (dist < 10) {
-              // Hit target!
-              const castleIndex = updatedCastles.findIndex(c => c.id === targetCastle.id);
-              if (castleIndex !== -1) {
-                // Apply damage
-                // If castle has defenders/firewall, damage is reduced
-                let damage = 5;
-                if (updatedCastles[castleIndex].defendConfig?.firewallActive) damage = 1;
-
-                updatedCastles[castleIndex].health = Math.max(0, updatedCastles[castleIndex].health - damage);
+      if (agents.length > 0) {
+        setAgents(prevAgents => {
+          let newAgents = [];
+          setCastles(currentCastles => {
+            let updatedCastles = [...currentCastles];
+            
+            prevAgents.forEach(agent => {
+              const targetCastle = updatedCastles.find(c => c.id === agent.targetId);
+              if (!targetCastle || targetCastle.health <= 0) return;
+              
+              const dx = targetCastle.x - agent.x;
+              const dy = targetCastle.y - agent.y;
+              const dist = Math.sqrt(dx*dx + dy*dy);
+              
+              if (dist < 10) {
+                const castleIndex = updatedCastles.findIndex(c => c.id === targetCastle.id);
+                if (castleIndex !== -1) {
+                  let damage = 5;
+                  if (updatedCastles[castleIndex].defendConfig?.firewallActive) damage = 1;
+                  updatedCastles[castleIndex].health = Math.max(0, updatedCastles[castleIndex].health - damage);
+                }
+              } else {
+                const speed = 150;
+                newAgents.push({
+                  ...agent,
+                  x: agent.x + (dx / dist) * speed * dt,
+                  y: agent.y + (dy / dist) * speed * dt
+                });
               }
-            } else {
-              // Move agent
-              const speed = 100;
-              newAgents.push({
-                ...agent,
-                x: agent.x + (dx / dist) * speed * dt,
-                y: agent.y + (dy / dist) * speed * dt
-              });
-            }
+            });
+            return updatedCastles;
           });
-
-          return updatedCastles;
+          return newAgents;
         });
-
-        return newAgents;
-      });
+      }
 
       requestRef.current = requestAnimationFrame(update);
     };
 
     requestRef.current = requestAnimationFrame(update);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [active]);
+  }, [active, socket]);
 
   const spawnAgents = (ownerId, targetId, x, y, count, type) => {
     setAgents(prev => {
@@ -226,101 +186,35 @@ export default function App() {
     });
   };
 
-  const aliveBots = castles.filter(c => !c.isSelf && c.health > 0).length;
-  const player = castles.find(c => c.isSelf);
+  const sharedState = {
+    castles,
+    agents,
+    logs,
+    active,
+    connectGame,
+    myId,
+    pin
+  };
 
   return (
-    <div className="app-container">
-      <div className="sidebar">
-        <h1 className="title">&gt;_ CYBER_AGENTS</h1>
-        <p style={{ marginBottom: '20px', fontSize: '1.2rem' }}>
-          Configure your autonomous agents to defend your castle and hack the enemy network. The initial config is broken—fix it to deploy!
-        </p>
-
-        <div className="config-section">
-          <div className="config-card attack">
-            <h2>[ATTACK_CFG] attack.json</h2>
-            <textarea
-              className="code-editor"
-              value={attackConfig}
-              onChange={e => setAttackConfig(e.target.value)}
-              spellCheck="false"
-            />
-          </div>
-
-          <div className="config-card defend">
-            <h2>[DEFEND_CFG] defend.json</h2>
-            <textarea
-              className="code-editor"
-              value={defendConfig}
-              onChange={e => setDefendConfig(e.target.value)}
-              spellCheck="false"
-            />
-          </div>
+    <BrowserRouter>
+      <div className="app-container">
+        {active && <Navigation pin={pin} />}
+        <div className="main-content">
+          <Routes>
+            <Route path="/" element={<Navigate to="/lobby" />} />
+            <Route path="/lobby" element={<Lobby joinGame={joinGame} />} />
+            {active && (
+              <>
+                <Route path="/battlefield" element={<Battlefield {...sharedState} />} />
+                <Route path="/logs" element={<ActivityLog logs={logs} />} />
+                <Route path="/intel" element={<Intel castles={castles} />} />
+              </>
+            )}
+            {!active && <Route path="*" element={<Navigate to="/lobby" />} />}
+          </Routes>
         </div>
-
-        {configError && <div className="error-msg">{configError}</div>}
-
-        <button className="btn" onClick={handleDeploy}>
-          {active ? "Update & Redeploy" : "Deploy Agents"}
-        </button>
       </div>
-
-      <div className="battlefield" ref={battlefieldRef}>
-        <div className="status-panel">
-          <h3>&gt; NETWORK_STATUS</h3>
-          <div className="status-item">
-            <span>Your Castle Integrity:</span>
-            <span>
-              {Math.floor(player?.health || 0)}%
-            </span>
-          </div>
-          <div className="status-item">
-            <span>Active Enemy Nodes:</span>
-            <span>{aliveBots} / 25</span>
-          </div>
-          <div className="status-item">
-            <span>Agents In Transit:</span>
-            <span>{agents.length}</span>
-          </div>
-          {player?.health <= 0 && (
-            <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
-              SYSTEM COMPROMISED. REBOOT REQUIRED.
-            </div>
-          )}
-          {aliveBots === 0 && player?.health > 0 && (
-            <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
-              NETWORK DOMINATED. YOU WIN.
-            </div>
-          )}
-        </div>
-
-        {castles.map(castle => (
-          castle.health > 0 && (
-            <div
-              key={castle.id}
-              className={`castle ${castle.isSelf ? 'self' : 'enemy'}`}
-              style={{ left: castle.x, top: castle.y }}
-            >
-              <div className="icon">
-                {castle.isSelf ? '[*]' : '[-]'}
-              </div>
-              <div className="name">{castle.name}</div>
-              <div className="health-bar">
-                <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
-              </div>
-            </div>
-          )
-        ))}
-
-        {agents.map(agent => (
-          <div
-            key={agent.id}
-            className={`agent ${agent.type}`}
-            style={{ left: agent.x, top: agent.y }}
-          />
-        ))}
-      </div>
-    </div>
+    </BrowserRouter>
   );
 }

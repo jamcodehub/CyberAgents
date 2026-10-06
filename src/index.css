@@ -25,6 +25,12 @@ body {
   width: 100vw;
 }
 
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
 .sidebar {
   width: 400px;
   background: var(--bg-dark);
