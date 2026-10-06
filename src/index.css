@@ -254,6 +254,128 @@ h1.title {
   line-height: 1.25;
 }
 
+.target-control,
+.team-builder {
+  border: 1px solid var(--border-color);
+  padding: 12px;
+}
+
+.target-control label,
+.team-builder > label,
+.team-editor > label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.target-control input,
+.team-builder select,
+.team-editor input,
+.team-editor textarea {
+  width: 100%;
+  padding: 8px;
+  background: #000;
+  border: 1px solid #888;
+  color: #fff;
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.team-builder h3 {
+  margin-bottom: 10px;
+}
+
+.team-add-row,
+.agent-list-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-add-row select,
+.agent-row select {
+  min-width: 0;
+  flex: 1;
+}
+
+.team-action,
+.remove-team,
+.remove-agent {
+  flex: 0 0 auto;
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.team-action,
+.remove-team {
+  padding: 6px 9px;
+}
+
+.team-action:hover,
+.remove-team:hover,
+.remove-agent:hover {
+  background: #fff;
+  color: #000;
+}
+
+.team-select-label {
+  display: block;
+  margin: 12px 0 6px;
+}
+
+.team-editor {
+  margin-top: 12px;
+}
+
+.team-editor input,
+.team-editor textarea {
+  margin-bottom: 10px;
+}
+
+.team-editor textarea {
+  resize: vertical;
+  line-height: 1.2;
+}
+
+.agent-list-heading {
+  justify-content: space-between;
+  margin: 4px 0 8px;
+}
+
+.agent-list-heading h4 {
+  font-size: 1.1rem;
+}
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.agent-row > span {
+  flex: 0 0 55px;
+}
+
+.remove-agent {
+  width: 32px;
+  height: 36px;
+  font-size: 1.3rem;
+}
+
+.remove-team {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.empty-roster {
+  margin-top: 10px;
+  line-height: 1.2;
+  color: #bbb;
+}
+
 .access-status {
   border-top: 1px solid #777;
   border-bottom: 1px solid #777;
