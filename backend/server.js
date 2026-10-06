@@ -25,6 +25,15 @@ io.on('connection', (socket) => {
     const pin = data.pin;
     if (!pin) return;
     
+    const isHost = data.isHost === true;
+    const roomHasHost = games[pin] && Object.values(games[pin]).some(p => p.isHost);
+
+    // Joiners need an existing lobby that still has a host
+    if (!isHost && !roomHasHost) {
+      socket.emit('join_error', { message: 'Enter a valid pin code.' });
+      return;
+    }
+
     socket.join(pin);
     socket.pin = pin; // Store pin on socket for disconnect logic
 
@@ -37,6 +46,9 @@ io.on('connection', (socket) => {
       id: socket.id,
       name: safeName,
       health: 100,
+      isHost,
+      alliance: null,
+      swarm: null,
       x: Math.random() * 800 + 100,
       y: Math.random() * 600 + 100,
       lastAttack: 0
@@ -48,6 +60,27 @@ io.on('connection', (socket) => {
     socket.to(pin).emit('player_joined', games[pin][socket.id]);
   });
 
+  // Share alliance + agent swarm info with the rest of the room
+  socket.on('player_update', (data) => {
+    const pin = socket.pin;
+    if (!pin || !games[pin]) return;
+
+    const player = games[pin][socket.id];
+    if (!player) return;
+
+    const alliance = typeof data?.alliance === 'string'
+      ? data.alliance.trim().substring(0, 20) || null
+      : null;
+    const clamp = (n) => Math.min(Math.max(parseInt(n) || 0, 0), 50);
+    const swarm = data?.swarm
+      ? { red: clamp(data.swarm.red), blue: clamp(data.swarm.blue) }
+      : null;
+
+    player.alliance = alliance;
+    player.swarm = swarm;
+    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm });
+  });
+
   // Handle player sending attackers
   socket.on('deploy_attackers', (data) => {
     const pin = socket.pin;
@@ -55,6 +88,11 @@ io.on('connection', (socket) => {
 
     const player = games[pin][socket.id];
     if (!player) return;
+
+    // Allies never attack each other
+    const target = games[pin][data.targetId];
+    if (!target || target.id === player.id) return;
+    if (player.alliance && player.alliance === target.alliance) return;
 
     // Rate limiting: max 1 attack per 2 seconds
     const now = Date.now();
