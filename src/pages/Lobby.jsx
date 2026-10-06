@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function Lobby({ joinGame }) {
+export default function Lobby({ joinGame, lobbyError }) {
   const [pinInput, setPinInput] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    navigate('/', { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (lobbyError) {
+      setError(lobbyError);
+      navigate('/', { replace: true });
+    }
+  }, [lobbyError, navigate]);
 
   const handleHost = () => {
     if (!nameInput) {
@@ -13,7 +24,8 @@ export default function Lobby({ joinGame }) {
       return;
     }
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
-    joinGame(nameInput, generatedPin);
+    setError('');
+    joinGame(nameInput, generatedPin, true);
     navigate('/battlefield');
   };
 
@@ -26,7 +38,8 @@ export default function Lobby({ joinGame }) {
       setError("PIN must be 4 digits.");
       return;
     }
-    joinGame(nameInput, pinInput);
+    setError('');
+    joinGame(nameInput, pinInput, false);
     navigate('/battlefield');
   };
 
@@ -58,7 +71,7 @@ export default function Lobby({ joinGame }) {
             type="text" 
             maxLength="4"
             value={pinInput} 
-            onChange={e => setPinInput(e.target.value)}
+            onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
             style={{ width: '100%', padding: '10px', background: '#000', color: '#fff', border: '1px solid #fff', fontFamily: 'inherit', fontSize: '1.2rem', textAlign: 'center', letterSpacing: '10px' }}
             placeholder="0000"
           />

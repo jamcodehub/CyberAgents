@@ -4,6 +4,8 @@ import Navigation from './components/Navigation';
 import ConfigPanel from './components/ConfigPanel';
 import IntelPanel from './components/IntelPanel';
 import LogPanel from './components/LogPanel';
+import AlliancePanel from './components/AlliancePanel';
+import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
 import './index.css';
 
@@ -37,6 +39,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [stewardship, setStewardship] = useState(0);
   const [pendingTask, setPendingTask] = useState(null);
+  const [lobbyError, setLobbyError] = useState('');
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
 
@@ -55,29 +58,72 @@ export default function App() {
     });
   };
 
-  const joinGame = (name, gamePin) => {
+  const joinGame = (name, gamePin, isHost = false) => {
     setPlayerName(name);
     setPin(gamePin);
-    
+    setLobbyError('');
+
     if (socket) socket.disconnect();
-    
+
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
     const newSocket = io(backendUrl);
-    
+    let entered = false;
+    let joinTimer = null;
+
+    const rejectJoin = (message) => {
+      clearTimeout(joinTimer);
+      newSocket.disconnect();
+      setSocket(null);
+      setPin(null);
+      setActive(false);
+      setCastles([]);
+      setLobbyError(message);
+    };
+
     newSocket.on('connect', () => {
       setMyId(newSocket.id);
-      newSocket.emit('join_game', { name, pin: gamePin });
+      newSocket.emit('join_game', { name, pin: gamePin, isHost });
       addLog(`Connected to network [${gamePin}] as ${name}`);
-      setActive(true);
+      if (isHost) {
+        entered = true;
+        setActive(true);
+      } else {
+        // Joiners only enter once the lobby proves it has a host.
+        joinTimer = setTimeout(() => {
+          if (!entered) rejectJoin('Enter a valid pin code.');
+        }, 4000);
+      }
     });
 
+    newSocket.on('connect_error', () => {
+      if (!entered) rejectJoin('Cannot reach the server. Try again.');
+    });
+
+    newSocket.on('join_error', () => rejectJoin('Enter a valid pin code.'));
+
     newSocket.on('game_state', (players) => {
-      const newCastles = Object.values(players).map(p => ({
-        ...p,
-        isSelf: p.id === newSocket.id,
-        teamConfig: null
+      const list = Object.values(players);
+      if (!entered) {
+        const others = list.filter(p => p.id !== newSocket.id).length;
+        if (others === 0) {
+          rejectJoin('Enter a valid pin code.');
+          return;
+        }
+        entered = true;
+        clearTimeout(joinTimer);
+        setActive(true);
+      }
+      const previous = stateRef.current.castles;
+      setCastles(list.map(p => {
+        const prev = previous.find(c => c.id === p.id);
+        return {
+          ...p,
+          isSelf: p.id === newSocket.id,
+          teamConfig: prev?.teamConfig ?? null,
+          alliance: p.alliance ?? prev?.alliance ?? null,
+          swarm: p.swarm ?? prev?.swarm ?? null
+        };
       }));
-      setCastles(newCastles);
     });
 
     newSocket.on('player_joined', (player) => {
@@ -93,6 +139,11 @@ export default function App() {
       });
     });
 
+    newSocket.on('player_updated', ({ id, alliance, swarm }) => {
+      if (id === newSocket.id) return;
+      setCastles(prev => prev.map(c => c.id === id ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null } : c));
+    });
+
     newSocket.on('attack_launched', (data) => {
       const { attackerId, targetId, agentCount } = data;
       const { castles } = stateRef.current;
@@ -100,6 +151,7 @@ export default function App() {
       const target = castles.find(c => c.id === targetId);
       
       if (attacker && target) {
+        if (attacker.alliance && attacker.alliance === target.alliance) return;
         spawnAgents(attackerId, targetId, attacker.x, attacker.y, agentCount, 'attacker');
         if (targetId === newSocket.id) {
           addLog(`WARNING: Incoming attack from ${attacker.name}! (${agentCount} agents)`);
@@ -112,11 +164,46 @@ export default function App() {
     setSocket(newSocket);
   };
 
+  // Shares alliance + agent-swarm info with the other players (needs the server relay).
+  const broadcastSelf = (overrides = {}) => {
+    if (!socket) return;
+    const me = stateRef.current.castles.find(c => c.isSelf);
+    socket.emit('player_update', {
+      alliance: me?.alliance ?? null,
+      swarm: me?.swarm ?? null,
+      ...overrides
+    });
+  };
+
+  const setMyAlliance = (alliance) => {
+    setCastles(prev => prev.map(c => c.isSelf ? { ...c, alliance } : c));
+    broadcastSelf({ alliance });
+    addLog(alliance
+      ? `Joined alliance ${alliance}. Allied bases will not attack each other.`
+      : 'Left alliance.');
+  };
+
+  const leaveGame = () => {
+    if (socket) socket.disconnect();
+    setSocket(null);
+    setActive(false);
+    setPin(null);
+    setMyId(null);
+    setCastles([]);
+    setAgents([]);
+    setLogs([]);
+    setStewardship(0);
+    setPendingTask(null);
+    setOpenPanel(null);
+    nextTaskIndexRef.current = 0;
+  };
+
   const connectGame = (parsedConfig) => {
     if (socket) {
       setCastles(prev => prev.map(c => 
-        c.isSelf ? { ...c, teamConfig: parsedConfig } : c
+        c.isSelf ? { ...c, teamConfig: parsedConfig, swarm: parsedConfig.swarm } : c
       ));
+      broadcastSelf({ swarm: parsedConfig.swarm });
       addLog(`Team configuration deployed. Roles active.`);
       setPendingTask(null);
       nextTaskIndexRef.current = 0;
@@ -198,60 +285,54 @@ export default function App() {
         attackCooldown -= dt;
         if (attackCooldown <= 0) {
           attackCooldown = 2.5; 
-          const targetName = me.teamConfig.target;
-          const target = castles.find(c => c.name === targetName || c.id === targetName);
-          
-          if (target && target.id !== me.id) {
-            // Calculate total attackers from the assault role
-            const assaultCount = me.teamConfig.roles?.assault?.count || 0;
-            if (assaultCount > 0) {
-              socket.emit('deploy_attackers', {
-                targetId: target.id,
-                agentCount: assaultCount
-              });
+          (me.teamConfig.attacks || []).forEach(({ targetId, count }) => {
+            const target = castles.find(c => c.id === targetId);
+            if (!target || target.id === me.id || target.health <= 0) return;
+            if (me.alliance && me.alliance === target.alliance) return;
+            if (count > 0) {
+              socket.emit('deploy_attackers', { targetId: target.id, agentCount: count });
             }
-          }
+          });
         }
       }
 
       if (agents.length > 0) {
-        setAgents(prevAgents => {
-          let newAgents = [];
-          setCastles(currentCastles => {
-            let updatedCastles = [...currentCastles];
-            
-            prevAgents.forEach(agent => {
-              const targetCastle = updatedCastles.find(c => c.id === agent.targetId);
-              if (!targetCastle || targetCastle.health <= 0) return;
-              
-              const dx = targetCastle.x - agent.x;
-              const dy = targetCastle.y - agent.y;
-              const dist = Math.sqrt(dx*dx + dy*dy);
-              
-              if (dist < 10) {
-                const castleIndex = updatedCastles.findIndex(c => c.id === targetCastle.id);
-                if (castleIndex !== -1) {
-                  let damage = 5;
-                  // If target has defense role, reduce damage
-                  const targetConfig = updatedCastles[castleIndex].teamConfig;
-                  if (targetConfig && targetConfig.roles?.defense?.firewall) {
-                    damage = 1;
-                  }
-                  updatedCastles[castleIndex].health = Math.max(0, updatedCastles[castleIndex].health - damage);
-                }
-              } else {
-                const speed = 150;
-                newAgents.push({
-                  ...agent,
-                  x: agent.x + (dx / dist) * speed * dt,
-                  y: agent.y + (dy / dist) * speed * dt
-                });
-              }
+        // Compute this frame from the latest snapshot, then apply immutable updates once.
+        const moved = new Map();
+        const gone = new Set();
+        const damageByCastle = {};
+
+        agents.forEach(agent => {
+          const targetCastle = castles.find(c => c.id === agent.targetId);
+          if (!targetCastle || targetCastle.health <= 0) { gone.add(agent.id); return; }
+          const owner = castles.find(c => c.id === agent.ownerId);
+          if (owner?.alliance && owner.alliance === targetCastle.alliance) { gone.add(agent.id); return; }
+
+          const dx = targetCastle.x - agent.x;
+          const dy = targetCastle.y - agent.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+
+          if (dist < 10) {
+            // If target has defense role, reduce damage
+            const damage = targetCastle.teamConfig?.roles?.defense?.firewall ? 1 : 5;
+            damageByCastle[targetCastle.id] = (damageByCastle[targetCastle.id] || 0) + damage;
+            gone.add(agent.id);
+          } else {
+            const speed = 150;
+            moved.set(agent.id, {
+              ...agent,
+              x: agent.x + (dx / dist) * speed * dt,
+              y: agent.y + (dy / dist) * speed * dt
             });
-            return updatedCastles;
-          });
-          return newAgents;
+          }
         });
+
+        setAgents(prev => prev.filter(a => !gone.has(a.id)).map(a => moved.get(a.id) ?? a));
+        if (Object.keys(damageByCastle).length > 0) {
+          setCastles(prev => prev.map(c => damageByCastle[c.id]
+            ? { ...c, health: Math.max(0, c.health - damageByCastle[c.id]) }
+            : c));
+        }
       }
 
       requestRef.current = requestAnimationFrame(update);
@@ -260,6 +341,28 @@ export default function App() {
     requestRef.current = requestAnimationFrame(update);
     return () => cancelAnimationFrame(requestRef.current);
   }, [active, socket]);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const PANEL_KEYS = { '1': null, '2': 'config', '3': 'intel', '4': 'logs', '5': 'alliances' };
+
+    const onKeyDown = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+      const tag = event.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return;
+      if (event.key === 'Escape') {
+        setOpenPanel(null);
+        return;
+      }
+      if (Object.hasOwn(PANEL_KEYS, event.key)) {
+        const panel = PANEL_KEYS[event.key];
+        setOpenPanel(prev => (panel === null || prev === panel ? null : panel));
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [active]);
 
   const spawnAgents = (ownerId, targetId, x, y, count, type) => {
     setAgents(prev => {
@@ -279,7 +382,7 @@ export default function App() {
   };
 
   if (!active) {
-    return <Lobby joinGame={joinGame} />;
+    return <Lobby joinGame={joinGame} lobbyError={lobbyError} />;
   }
 
   const togglePanel = (panelName) => {
@@ -291,12 +394,24 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <Navigation pin={pin} openPanel={openPanel} onTogglePanel={togglePanel} />
+      <Navigation pin={pin} openPanel={openPanel} onTogglePanel={togglePanel} onLeave={leaveGame} />
       
       {/* Sliding Panels */}
-      <ConfigPanel isOpen={openPanel === 'config'} connectGame={connectGame} active={active} />
+      <ConfigPanel
+        isOpen={openPanel === 'config'}
+        connectGame={connectGame}
+        active={active}
+        players={castles.filter(c => !c.isSelf)}
+        myAlliance={player?.alliance ?? null}
+      />
       <IntelPanel isOpen={openPanel === 'intel'} castles={castles} />
       <LogPanel isOpen={openPanel === 'logs'} logs={logs} />
+      <AlliancePanel
+        isOpen={openPanel === 'alliances'}
+        castles={castles}
+        myAlliance={player?.alliance ?? null}
+        onSetAlliance={setMyAlliance}
+      />
 
       {/* Battlefield (Background) */}
       <div className="battlefield" style={{ flex: 1, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
@@ -322,6 +437,9 @@ export default function App() {
             <div className="access-status">
               HOMEBASE POLICY: {player.teamConfig.accessMode === 'fullAccess' ? 'FULL ACCESS' : 'APPROVAL REQUIRED'}
             </div>
+          )}
+          {player?.alliance && (
+            <div className="access-status">ALLIANCE: {player.alliance}</div>
           )}
           {player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
             <section className={`approval-task ${pendingTask.risky ? 'is-risky' : ''}`} aria-labelledby="approval-task-title">
@@ -359,11 +477,23 @@ export default function App() {
           )
         ))}
 
+        {castles.map(castle => (
+          castle.health > 0 && castle.swarm && (castle.swarm.red > 0 || castle.swarm.blue > 0) && (
+            <AgentSwarm
+              key={`swarm-${castle.id}`}
+              x={castle.x}
+              y={castle.y}
+              red={castle.swarm.red}
+              blue={castle.swarm.blue}
+            />
+          )
+        ))}
+
         {agents.map(agent => (
           <div
             key={agent.id}
             className={`agent ${agent.type}`}
-            style={{ left: agent.x, top: agent.y }}
+            style={{ transform: `translate3d(${agent.x - 4}px, ${agent.y - 4}px, 0)` }}
           />
         ))}
       </div>

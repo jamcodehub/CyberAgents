@@ -41,14 +41,26 @@ body {
   border-right: 2px solid var(--border-color);
   padding: 20px;
   z-index: 90;
-  transform: translateX(-150%);
-  transition: transform 0.3s ease-in-out;
+  transform: translate3d(-150%, 0, 0);
+  visibility: hidden;
+  will-change: transform;
+  backface-visibility: hidden;
+  transition: transform 0.3s ease-in, visibility 0s linear 0.3s;
   display: flex;
   flex-direction: column;
 }
 
 .slide-panel.open {
-  transform: translateX(0);
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  transition: transform 0.3s ease-in, visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-panel,
+  .slide-panel.open {
+    transition: none;
+  }
 }
 
 .sidebar {
@@ -189,7 +201,9 @@ h1.title {
   width: 8px;
   height: 8px;
   background: var(--text-main);
-  transform: translate(-50%, -50%);
+  left: 0;
+  top: 0;
+  will-change: transform;
   z-index: 6;
 }
 
@@ -432,4 +446,119 @@ h1.title {
 .task-button:hover {
   background: #fff;
   color: #000;
+}
+
+.agent.attacker {
+  background: #ff5c5c;
+}
+
+.team-editor > select {
+  margin-bottom: 10px;
+}
+
+/* Agent swarm pixels */
+.swarm {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.swarm-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  animation: swarm-spin 14s linear infinite;
+}
+
+.swarm-ring.blue {
+  animation-duration: 18s;
+  animation-direction: reverse;
+}
+
+.swarm-pixel {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  pointer-events: auto;
+}
+
+.swarm-pixel i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: pixel-work 0.9s ease-in-out infinite;
+}
+
+.swarm-pixel.red i {
+  background: #ff5c5c;
+  box-shadow: 0 0 4px #ff5c5c;
+}
+
+.swarm-pixel.blue i {
+  background: #0a1a2a;
+  border: 1px solid #5cb3ff;
+  box-shadow: 0 0 4px #5cb3ff;
+}
+
+@keyframes swarm-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pixel-work {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.7); }
+}
+
+/* Alliances panel */
+.alliance-box {
+  border: 1px solid var(--border-color);
+  padding: 12px;
+}
+
+.alliance-box label,
+.alliance-box h3 {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.alliance-form {
+  display: flex;
+  gap: 8px;
+}
+
+.alliance-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  background: #000;
+  border: 1px solid #888;
+  color: #fff;
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.alliance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #333;
+  padding: 8px 0;
+}
+
+.alliance-members {
+  color: #bbb;
+  font-size: 1.05rem;
+}
+
+.team-action:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

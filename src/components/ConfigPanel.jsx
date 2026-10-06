@@ -25,13 +25,12 @@ const TEAM_TYPES = {
   }
 };
 
-export default function ConfigPanel({ isOpen, connectGame, active }) {
+export default function ConfigPanel({ isOpen, connectGame, active, players = [], myAlliance = null }) {
   const [configError, setConfigError] = useState("");
   const [accessMode, setAccessMode] = useState("requireApproval");
   const [teamTypeToAdd, setTeamTypeToAdd] = useState('red');
   const [teams, setTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
-  const [target, setTarget] = useState('');
   const idCounter = useRef(0);
 
   const selectedTeam = teams.find(team => team.id === selectedTeamId) || teams[0];
@@ -45,6 +44,7 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
       type: teamType,
       name: `${TEAM_TYPES[teamType].label.split(' (')[0]} ${teamNumber}`,
       instructions: '',
+      targetId: '',
       agents: []
     }]);
     setSelectedTeamId(id);
@@ -91,9 +91,6 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
       if (agentCount > 50) {
         throw new Error("Resource limit exceeded. Maximum team total is 50 agents.");
       }
-      if (!target.trim()) {
-        throw new Error('Enter the name of an enemy node to target.');
-      }
 
       const redAgents = teams.filter(team => team.type === 'red').flatMap(team => team.agents);
       const blueAgents = teams.filter(team => team.type === 'blue').flatMap(team => team.agents);
@@ -105,10 +102,15 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
         'Threat Intelligence Analyst',
         'Vulnerability Analyst'
       ]);
+      const attacks = teams
+        .filter(team => team.type === 'red' && team.targetId && team.agents.length > 0
+          && players.some(p => p.id === team.targetId))
+        .map(team => ({ teamId: team.id, targetId: team.targetId, count: team.agents.length }));
       const parsedConfig = {
-        target: target.trim(),
         accessMode,
         teams,
+        attacks,
+        swarm: { red: redAgents.length, blue: blueAgents.length },
         roles: {
           recon: { count: teams.flatMap(team => team.agents).filter(agent => reconRoles.has(agent.role)).length },
           assault: { count: redAgents.length },
@@ -144,16 +146,6 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
               : "Unrestricted access can make agents follow instructions literally and destabilize Homebase."}
             {" "}Simulation only; no real system is accessed.
           </p>
-        </div>
-
-        <div className="target-control">
-          <label htmlFor="agent-target">SIMULATION TARGET</label>
-          <input
-            id="agent-target"
-            value={target}
-            onChange={event => setTarget(event.target.value)}
-            placeholder="Enemy node name"
-          />
         </div>
 
         <div className="team-builder">
@@ -194,6 +186,26 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
                     placeholder="Describe this team's objectives and constraints."
                     rows={3}
                   />
+                  {selectedTeam.type === 'red' && (
+                    <>
+                      <label htmlFor="team-target">TARGET (OPTIONAL)</label>
+                      <select
+                        id="team-target"
+                        value={players.some(p => p.id === selectedTeam.targetId) ? selectedTeam.targetId : ''}
+                        onChange={event => updateTeam(selectedTeam.id, { targetId: event.target.value })}
+                      >
+                        <option value="">No target</option>
+                        {players.map(p => {
+                          const ally = Boolean(myAlliance) && p.alliance === myAlliance;
+                          return (
+                            <option key={p.id} value={p.id} disabled={ally}>
+                              {p.name}{ally ? ' (ally)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </>
+                  )}
 
                   <div className="agent-list-heading">
                     <h4>AGENTS ({selectedTeam.agents.length})</h4>
