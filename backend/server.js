@@ -21,12 +21,14 @@ io.on('connection', (socket) => {
   
   // Register new player
   socket.on('join_game', (data) => {
+    const safeName = String(data.name || `Agent-${socket.id.substring(0, 4)}`).substring(0, 20);
     players[socket.id] = {
       id: socket.id,
-      name: data.name || `Agent-${socket.id.substring(0, 4)}`,
+      name: safeName,
       health: 100,
       x: Math.random() * 800 + 100,
-      y: Math.random() * 600 + 100
+      y: Math.random() * 600 + 100,
+      lastAttack: 0
     };
     // Send current game state to new player
     socket.emit('game_state', players);
@@ -36,11 +38,22 @@ io.on('connection', (socket) => {
 
   // Handle player sending attackers
   socket.on('deploy_attackers', (data) => {
-    // Broadcast the attack to everyone (including the target)
+    const player = players[socket.id];
+    if (!player) return;
+
+    // Rate limiting: max 1 attack per 2 seconds
+    const now = Date.now();
+    if (now - player.lastAttack < 2000) return;
+    player.lastAttack = now;
+
+    // Hard limit on agent count to prevent crashes
+    let agentCount = parseInt(data.agentCount) || 1;
+    agentCount = Math.min(Math.max(agentCount, 1), 50); // Cap at 50
+
     io.emit('attack_launched', {
       attackerId: socket.id,
       targetId: data.targetId,
-      agentCount: data.agentCount
+      agentCount: agentCount
     });
   });
 
