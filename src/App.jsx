@@ -235,7 +235,7 @@ export default function App() {
   };
 
   const decideTask = (approved) => {
-    if (!pendingTask) return;
+    if (!pendingTask || isPaused) return;
 
     if (approved) {
       socket?.emit('deploy_attackers', {
@@ -257,7 +257,7 @@ export default function App() {
 
     const interval = setInterval(() => {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
-        if (isPaused || player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
+      if (isPaused || player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
 
       socket?.emit('homebase_incident');
     }, 7000);
