@@ -1,5 +1,6 @@
 import React from 'react';
 
+// Shared event feed: color each entry using its actor's current alliance color.
 export default function LogPanel({ isOpen, logs, castles }) {
   const colorForLog = (log) => {
     const actor = castles.find(castle => castle.id === log.playerId);

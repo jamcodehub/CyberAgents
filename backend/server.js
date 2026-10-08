@@ -14,12 +14,12 @@ const io = new Server(server, {
   }
 });
 
-// Map of pin -> map of socket.id -> player data
+// Each pin owns a player roster and one authoritative simulation world.
 let games = {};
 const worlds = new Map();
 let nextAgentId = 0;
 
-// Codenames handed out to players (unique within a lobby)
+// Codenames and simulation limits shared by every game room.
 const AGENT_NAMES = [
   'Cipher', 'Phantom', 'Vector', 'Packet', 'Kernel', 'Daemon', 'Proxy', 'Beacon', 'Sentinel', 'Honeypot',
   'Payload', 'Bytecode', 'Firewall', 'Gateway', 'Sandbox', 'Token', 'Hash', 'Socket', 'Syntax', 'Binary',
@@ -33,6 +33,7 @@ const TOKEN_REGEN_PER_SECOND = 5000;
 const TOKENS_PER_AGENT = 1000;
 const TOKENS_PER_STEAL = 10000;
 
+// Room identity and target rules keep host accounts out of player combat.
 function assignAgentName(room) {
   const taken = new Set(Object.values(room || {}).filter(p => !p.isHost && !p.spectator).map(p => p.name));
   const free = AGENT_NAMES.filter(n => !taken.has(n));
@@ -115,6 +116,7 @@ function finishGameIfWon(pin) {
   standing[0] ?? null);
 }
 
+// Socket events own room membership, lobby control, and authoritative player updates.
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
@@ -221,6 +223,52 @@ io.on('connection', (socket) => {
     respond({ accepted: true });
   });
 
+  socket.on('return_to_lobby', (acknowledge) => {
+    const respond = (result) => {
+      if (typeof acknowledge === 'function') acknowledge(result);
+    };
+    const pin = socket.pin;
+    const player = pin && games[pin] && games[pin][socket.id];
+    const world = pin && worlds.get(pin);
+    if (!player?.isHost || !world) {
+      respond({ accepted: false, reason: 'Only the host can return this game to the lobby.' });
+      return;
+    }
+    if (!world.gameOver) {
+      respond({ accepted: false, reason: 'The game must be over before returning to the lobby.' });
+      return;
+    }
+
+    const resetPlayers = {};
+    Object.values(games[pin]).forEach(member => {
+      member.health = STARTING_HEALTH;
+      member.tokens = member.isHost ? 0 : STARTING_TOKENS;
+      member.lastActionByTarget = {};
+      member.lastIncident = 0;
+      Object.assign(member, spawnPosition(resetPlayers, member.isHost));
+      resetPlayers[member.id] = member;
+    });
+
+    world.agents = [];
+    world.paused = false;
+    world.started = false;
+    world.gameOver = false;
+    world.competitorCount = Object.values(games[pin]).filter(isCompetitor).length;
+    world.lastUpdate = Date.now();
+    io.to(pin).emit('return_to_lobby');
+    io.to(pin).emit('lobby_state', { players: Object.values(games[pin]), started: false });
+    io.to(pin).emit('world_state', {
+      players: Object.values(games[pin]),
+      agents: world.agents,
+      paused: false,
+      started: false
+    });
+    broadcastHealth(pin, games[pin]);
+    broadcastLog(pin, `${player.name} returned everyone to the lobby.`);
+    respond({ accepted: true });
+  });
+
+  // Player-authored activity is relayed to every other participant, including the host.
   socket.on('activity_log', (data) => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
@@ -256,7 +304,7 @@ io.on('connection', (socket) => {
     target.y = Math.min(700, Math.max(0, data.y));
   });
 
-  // Share alliance + agent swarm info with the rest of the room
+  // Player configuration and alliance state are validated here before room broadcast.
   socket.on('player_update', (data, acknowledge) => {
     const respond = (result) => {
       if (typeof acknowledge === 'function') acknowledge(result);
@@ -341,7 +389,7 @@ io.on('connection', (socket) => {
     broadcastLog(pin, `${player.name} changed alliance ${player.alliance}'s color.`, player);
   });
 
-  // Process game-only agent actions and token transfers.
+  // Agent actions, token transfers, and full-access incidents are server-authoritative.
   socket.on('agent_action', (data, acknowledge) => {
     const respond = (result) => {
       if (typeof acknowledge === 'function') acknowledge(result);
@@ -478,6 +526,7 @@ io.on('connection', (socket) => {
   });
 
   // Handle disconnect
+  // Removing the host closes the room; other departures update the retained roster.
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     const pin = socket.pin;
@@ -511,6 +560,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// The simulation moves grouped projectiles and publishes the shared world snapshot.
 setInterval(() => {
   const now = Date.now();
   worlds.forEach((world, pin) => {

@@ -31,6 +31,7 @@ body {
   overflow: hidden;
 }
 
+/* Waiting room: make the room PIN and connected player roster easy to read. */
 .waiting-lobby {
   flex: 1;
   min-height: 100vh;
@@ -165,6 +166,7 @@ body {
   z-index: 10;
 }
 
+/* Battlefield camera: drag to pan and wheel to zoom the shared map view. */
 .battlefield {
   flex: 1;
   position: relative;
@@ -281,7 +283,7 @@ h1.title {
   color: var(--bg-dark);
 }
 
-/* Map Entities */
+/* Map entities: bases, health bars, and in-flight grouped projectiles. */
 .castle {
   position: absolute;
   width: 60px;
@@ -782,19 +784,23 @@ h1.title {
   background: #888;
 }
 
-.castle.self .icon {
+.castle.self:not(.allied) .icon {
   border: 3px solid #fff;
   color: #fff;
   font-weight: bold;
 }
 
-.castle.self .name {
+.castle.self:not(.allied) .name {
   color: #fff;
   font-weight: bold;
 }
 
-.castle.self .health-fill {
+.castle.self:not(.allied) .health-fill {
   background: #fff;
+}
+
+.return-lobby-button {
+  margin-top: 10px;
 }
 
 .victory-overlay {

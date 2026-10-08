@@ -2,6 +2,7 @@ import React from 'react';
 
 const formatHealthPercent = (health = 0) => `${Math.floor(health / 10)}%`;
 
+// Room roster view: shows health, tokens, and alliance identity for each base.
 export default function IntelPanel({ isOpen, castles, spectator = false }) {
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>

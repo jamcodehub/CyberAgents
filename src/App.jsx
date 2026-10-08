@@ -19,6 +19,7 @@ const getTokenBalance = (player, previous) => (
 );
 
 export default function App() {
+  // Shared match state is mirrored from the authoritative room socket.
   const [active, setActive] = useState(false);
   const [socket, setSocket] = useState(null);
   const [myId, setMyId] = useState(null);
@@ -38,6 +39,7 @@ export default function App() {
   const [gameResult, setGameResult] = useState(null);
   const [showGameResult, setShowGameResult] = useState(false);
   const [cameraOffset, setCameraOffset] = useState({ x: 0, y: 0 });
+  const [cameraZoom, setCameraZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
@@ -53,6 +55,7 @@ export default function App() {
     stateRef.current = { castles };
   }, [castles]);
 
+  // Local log helpers keep the same entries visible to their author and the room.
   const appendLog = (msg, metadata = {}) => {
     setLogs(prev => {
       const newLogs = [{ time: new Date().toLocaleTimeString(), msg, ...metadata }, ...prev];
@@ -66,8 +69,10 @@ export default function App() {
     socketRef.current?.emit('activity_log', { msg });
   };
 
+  // Connection setup wires room events into local display state.
   const joinGame = (gamePin, isHost = false) => {
     setCameraOffset({ x: 0, y: 0 });
+    setCameraZoom(1);
     setPin(gamePin);
     setIsHost(isHost);
     setGameStarted(false);
@@ -90,6 +95,7 @@ export default function App() {
       setPin(null);
       setActive(false);
       setCameraOffset({ x: 0, y: 0 });
+      setCameraZoom(1);
       setCastles([]);
       setAgents([]);
       setLogs([]);
@@ -220,6 +226,17 @@ export default function App() {
       setIsPaused(true);
       setPendingTask(null);
     });
+    newSocket.on('return_to_lobby', () => {
+      setGameStarted(false);
+      setIsPaused(false);
+      setGameResult(null);
+      setShowGameResult(false);
+      setPendingTask(null);
+      setLobbyStartError('');
+      setCameraOffset({ x: 0, y: 0 });
+      setCameraZoom(1);
+      setAgents([]);
+    });
 
     newSocket.on('player_joined', (player) => {
       const host = player.spectator || player.isHost || (isHost && player.id === newSocket.id);
@@ -279,6 +296,7 @@ export default function App() {
     }, acknowledge);
   };
 
+  // Alliance choices are optimistically shown locally, then synchronized by the server.
   const setMyAlliance = (alliance, pickedColor) => {
     const teammate = alliance
       ? stateRef.current.castles.find(c => !c.isSelf && c.alliance === alliance)
@@ -310,6 +328,7 @@ export default function App() {
     setGameStarted(false);
     setLobbyStartError('');
     setIsPaused(false);
+    setCameraZoom(1);
     setGameResult(null);
     setShowGameResult(false);
     setCastles([]);
@@ -320,6 +339,7 @@ export default function App() {
     setOpenPanel(null);
   };
 
+  // Player configuration is acknowledged by the backend before actions are offered.
   const connectGame = (parsedConfig) => {
     if (socketRef.current?.connected) {
       nextApprovalAtRef.current = 0;
@@ -407,6 +427,24 @@ export default function App() {
     });
   };
 
+  const returnToLobby = () => {
+    setLobbyStartError('');
+    let acknowledged = false;
+    const timer = setTimeout(() => {
+      if (!acknowledged) {
+        setLobbyStartError('No response from the game server. Deploy the latest backend to Render and reconnect.');
+      }
+    }, 4000);
+    socketRef.current?.emit('return_to_lobby', result => {
+      acknowledged = true;
+      clearTimeout(timer);
+      if (!result?.accepted) {
+        setLobbyStartError(result?.reason || 'The server did not return the players to the lobby.');
+      }
+    });
+  };
+
+  // Approval submits the reviewed action to the server; it never launches locally.
   const decideTask = (approved) => {
     if (!pendingTask || isPaused) return;
     nextApprovalAtRef.current = Date.now() + 12000;
@@ -443,6 +481,8 @@ export default function App() {
     setPendingTask(null);
   };
 
+  // These timers request server-side agent behavior; they do not simulate combat locally.
+  // Scheduled team behavior asks the server to run configured actions.
   useEffect(() => {
     if (!active) return undefined;
 
@@ -527,7 +567,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [active, socket, isPaused]);
 
-  // Hosts spectate: no agent config, and menus are numbered by what is available
+  // Hosts spectate: no agent config, and menus are numbered by what is available.
   const panelOrder = isHost
     ? [null, 'intel', 'logs', 'alliances']
     : [null, 'config', 'intel', 'logs', 'alliances'];
@@ -592,6 +632,7 @@ export default function App() {
   const agentsInTransit = agents.reduce((total, agent) => total + (agent.count || 1), 0);
   const togglePause = () => socketRef.current?.emit('set_game_paused', { paused: !isPaused });
 
+  // Map navigation is local; host dragging of a base remains server-synchronized.
   const startMapDrag = (event) => {
     if (!battlefieldRef.current || event.target.closest('button, .status-panel')) return;
     const castleElement = isHost ? event.target.closest('[data-player-id]') : null;
@@ -618,8 +659,8 @@ export default function App() {
     if (isHost && draggedPlayerRef.current) {
       const bounds = map.getBoundingClientRect();
       if (!bounds.width || !bounds.height) return;
-      const x = ((event.clientX - bounds.left - cameraOffset.x) / bounds.width) * 1000;
-      const y = ((event.clientY - bounds.top - cameraOffset.y) / bounds.height) * 700;
+      const x = ((event.clientX - bounds.left - cameraOffset.x) / cameraZoom / bounds.width) * 1000;
+      const y = ((event.clientY - bounds.top - cameraOffset.y) / cameraZoom / bounds.height) * 700;
       socketRef.current?.emit('move_player', {
         playerId: draggedPlayerRef.current,
         x: Math.min(1000, Math.max(0, x)),
@@ -639,6 +680,24 @@ export default function App() {
     });
   };
 
+  const handleBattlefieldWheel = (event) => {
+    if (event.target.closest('button, .status-panel')) return;
+    event.preventDefault();
+    const map = battlefieldRef.current;
+    if (!map) return;
+
+    const bounds = map.getBoundingClientRect();
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    const nextZoom = Math.min(2.5, Math.max(0.75, cameraZoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    const zoomRatio = nextZoom / cameraZoom;
+    setCameraOffset(offset => ({
+      x: pointerX - (pointerX - offset.x) * zoomRatio,
+      y: pointerY - (pointerY - offset.y) * zoomRatio
+    }));
+    setCameraZoom(nextZoom);
+  };
+
   const endMapDrag = (event) => {
     if (battlefieldRef.current?.hasPointerCapture(event.pointerId)) {
       battlefieldRef.current.releasePointerCapture(event.pointerId);
@@ -648,6 +707,7 @@ export default function App() {
     setIsPanning(false);
   };
 
+  // Main battlefield view combines control panels with the shared map.
   return (
     <div className="app-container">
       <Navigation
@@ -691,17 +751,22 @@ export default function App() {
           position: 'relative',
           overflow: 'hidden',
           zIndex: 1,
-          backgroundPosition: `${cameraOffset.x}px ${cameraOffset.y}px`
+          backgroundPosition: `${cameraOffset.x}px ${cameraOffset.y}px`,
+          backgroundSize: `${20 * cameraZoom}px ${20 * cameraZoom}px`
         }}
         onPointerDown={startMapDrag}
         onPointerMove={updateMapDrag}
         onPointerUp={endMapDrag}
         onPointerCancel={endMapDrag}
+        onWheel={handleBattlefieldWheel}
       >
         <button
           type="button"
           className="recenter-map-button"
-          onClick={() => setCameraOffset({ x: 0, y: 0 })}
+          onClick={() => {
+            setCameraOffset({ x: 0, y: 0 });
+            setCameraZoom(1);
+          }}
           aria-label="Recenter battlefield map"
           title="Recenter map"
         >
@@ -789,7 +854,10 @@ export default function App() {
 
         <div
           className="battlefield-world"
-          style={{ transform: `translate3d(${cameraOffset.x}px, ${cameraOffset.y}px, 0)` }}
+          style={{
+            transform: `translate3d(${cameraOffset.x}px, ${cameraOffset.y}px, 0) scale(${cameraZoom})`,
+            transformOrigin: '0 0'
+          }}
         >
           {castles.map(castle => (
             castle.health > 0 && (
@@ -862,6 +930,12 @@ export default function App() {
               ))}
             </ol>
             <button className="task-button" onClick={() => setShowGameResult(false)}>Continue watching</button>
+            {isHost && (
+              <button className="task-button return-lobby-button" onClick={returnToLobby}>
+                Return all players to lobby
+              </button>
+            )}
+            {lobbyStartError && <p className="waiting-lobby-error" role="alert">{lobbyStartError}</p>}
           </section>
         </div>
       )}
