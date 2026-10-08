@@ -23,6 +23,7 @@ export default function App() {
   const [pendingTask, setPendingTask] = useState(null);
   const [lobbyError, setLobbyError] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
 
@@ -32,11 +33,16 @@ export default function App() {
     stateRef.current = { castles };
   }, [castles]);
 
-  const addLog = (msg) => {
+  const appendLog = (msg) => {
     setLogs(prev => {
       const newLogs = [{ time: new Date().toLocaleTimeString(), msg }, ...prev];
       return newLogs.slice(0, 100); 
     });
+  };
+
+  const addLog = (msg) => {
+    appendLog(msg);
+    socket?.emit('activity_log', { msg });
   };
 
   const joinGame = (gamePin, isHost = false) => {
@@ -65,6 +71,7 @@ export default function App() {
       setPendingTask(null);
       setOpenPanel(null);
       setIsHost(false);
+      setIsPaused(false);
       setLobbyError(message);
     };
 
@@ -121,7 +128,7 @@ export default function App() {
       }));
     });
 
-    newSocket.on('world_state', ({ players, agents: worldAgents }) => {
+    newSocket.on('world_state', ({ players, agents: worldAgents, paused }) => {
       const previous = stateRef.current.castles;
       setCastles(players.map(p => {
         const prev = previous.find(c => c.id === p.id);
@@ -132,52 +139,29 @@ export default function App() {
         };
       }));
       setAgents(worldAgents);
+      setIsPaused(paused);
     });
+
+    newSocket.on('activity_log', ({ msg }) => appendLog(msg));
+    newSocket.on('game_paused', ({ paused }) => setIsPaused(paused));
 
     newSocket.on('player_joined', (player) => {
       setCastles(prev => [...prev.filter(c => c.id !== player.id), { ...player, isSelf: false }]);
-      addLog(`Entity joined the network: ${player.name}`);
     });
 
     newSocket.on('player_left', (playerId) => {
-      setCastles(prev => {
-        const p = prev.find(c => c.id === playerId);
-        if (p) addLog(`Entity disconnected: ${p.name}`);
-        return prev.filter(c => c.id !== playerId);
-      });
+      setCastles(prev => prev.filter(c => c.id !== playerId));
     });
 
-    newSocket.on('player_updated', ({ id, alliance, swarm, color, firewall }) => {
+    newSocket.on('player_updated', ({ id, alliance, swarm, color, firewall, accessMode }) => {
       if (id === newSocket.id) return;
-      const before = stateRef.current.castles.find(c => c.id === id);
-      if (isHost && before && (before.alliance ?? null) !== (alliance ?? null)) {
-        addLog(alliance ? `${before.name} joined alliance ${alliance}.` : `${before.name} left alliance ${before.alliance}.`);
-      }
       setCastles(prev => prev.map(c => c.id === id
-        ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null, firewall }
+        ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null, firewall, accessMode }
         : c));
     });
 
     newSocket.on('alliance_color', ({ alliance, color }) => {
       setCastles(prev => prev.map(c => c.alliance === alliance ? { ...c, color } : c));
-    });
-
-    newSocket.on('attack_launched', (data) => {
-      const { attackerId, targetId, agentCount } = data;
-      const { castles } = stateRef.current;
-      const attacker = castles.find(c => c.id === attackerId);
-      const target = castles.find(c => c.id === targetId);
-      
-      if (attacker && target) {
-        if (attacker.alliance && attacker.alliance === target.alliance) return;
-        if (targetId === newSocket.id) {
-          addLog(`WARNING: Incoming attack from ${attacker.name}! (${agentCount} agents)`);
-        } else if (attackerId === newSocket.id) {
-          addLog(`Deployed ${agentCount} agents to attack ${target.name}.`);
-        } else if (isHost) {
-          addLog(`${attacker.name} sent ${agentCount} agents at ${target.name}.`);
-        }
-      }
     });
 
     setSocket(newSocket);
@@ -192,6 +176,7 @@ export default function App() {
       swarm: me?.swarm ?? null,
       color: me?.color ?? null,
       firewall: me?.firewall ?? false,
+      accessMode: me?.teamConfig?.accessMode ?? me?.accessMode ?? null,
       ...overrides
     });
   };
@@ -222,6 +207,7 @@ export default function App() {
     setPin(null);
     setMyId(null);
     setIsHost(false);
+    setIsPaused(false);
     setCastles([]);
     setAgents([]);
     setLogs([]);
@@ -237,7 +223,8 @@ export default function App() {
       ));
       broadcastSelf({
         swarm: parsedConfig.swarm,
-        firewall: parsedConfig.roles?.defense?.firewall ?? false
+        firewall: parsedConfig.roles?.defense?.firewall ?? false,
+        accessMode: parsedConfig.accessMode
       });
       addLog(`Team configuration deployed. Roles active.`);
       setPendingTask(null);
@@ -270,21 +257,20 @@ export default function App() {
 
     const interval = setInterval(() => {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
-      if (player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
+        if (isPaused || player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
 
       socket?.emit('homebase_incident');
-      addLog('Unreviewed literal execution destabilized simulated Homebase. Integrity -8.');
     }, 7000);
 
     return () => clearInterval(interval);
-  }, [active, socket]);
+  }, [active, socket, isPaused]);
 
   useEffect(() => {
     if (!active) return undefined;
 
     const interval = setInterval(() => {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
-      if (player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
+      if (isPaused || player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
       const attack = (player.teamConfig.attacks || []).find(({ targetId, count }) => {
         const target = stateRef.current.castles.find(castle => castle.id === targetId);
         return count > 0 && target && !target.spectator && target.health > 0
@@ -305,14 +291,14 @@ export default function App() {
     }, 12000);
 
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, isPaused]);
 
   useEffect(() => {
     if (!active || !socket) return undefined;
     const interval = setInterval(() => {
       const castles = stateRef.current.castles;
       const me = castles.find(castle => castle.isSelf);
-      if (!me || me.health <= 0 || me.teamConfig?.accessMode !== 'fullAccess') return;
+      if (isPaused || !me || me.health <= 0 || me.teamConfig?.accessMode !== 'fullAccess') return;
       (me.teamConfig.attacks || []).forEach(({ targetId, count }) => {
         const target = castles.find(castle => castle.id === targetId);
         if (!target || target.spectator || target.health <= 0) return;
@@ -321,7 +307,7 @@ export default function App() {
       });
     }, 2500);
     return () => clearInterval(interval);
-  }, [active, socket]);
+  }, [active, socket, isPaused]);
 
   // Hosts spectate: no agent config, and menus are numbered by what is available
   const panelOrder = isHost
@@ -371,6 +357,7 @@ export default function App() {
 
   const aliveBots = castles.filter(c => !c.isSelf && !c.spectator && c.health > 0).length;
   const player = castles.find(c => c.isSelf);
+  const togglePause = () => socket?.emit('set_game_paused', { paused: !isPaused });
 
   return (
     <div className="app-container">
@@ -403,13 +390,19 @@ export default function App() {
         <div className="status-panel">
           <h3>&gt; NETWORK_STATUS</h3>
           {isHost ? (
-            <div className="access-status">HOST: SPECTATING</div>
+            <>
+              <div className="access-status">HOST: SPECTATING</div>
+              <button className="task-button host-pause-button" onClick={togglePause}>
+                {isPaused ? 'Resume game' : 'Pause game'}
+              </button>
+            </>
           ) : (
             <div className="status-item">
               <span>Your Castle Integrity:</span>
               <span>{Math.floor(player?.health || 0)}%</span>
             </div>
           )}
+          {isPaused && <div className="access-status" role="status">GAME PAUSED BY HOST</div>}
           <div className="status-item">
             <span>Active Enemy Nodes:</span>
             <span>{aliveBots}</span>
@@ -432,7 +425,7 @@ export default function App() {
           {player?.alliance && (
             <div className="access-status">ALLIANCE: {player.alliance}</div>
           )}
-          {player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
+          {!isPaused && player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
             <section className={`approval-task ${pendingTask.risky ? 'is-risky' : ''}`} aria-labelledby="approval-task-title">
               <p className="task-kicker">AGENT REQUEST · REVIEW BEFORE APPROVAL</p>
               <h4 id="approval-task-title">{pendingTask.title}</h4>

@@ -36,6 +36,10 @@ function assignAgentName(room) {
   return `Agent-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+function broadcastLog(pin, msg) {
+  io.to(pin).emit('activity_log', { msg });
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
@@ -64,7 +68,7 @@ io.on('connection', (socket) => {
 
     if (!games[pin]) {
       games[pin] = {};
-      worlds.set(pin, { agents: [], lastUpdate: Date.now() });
+      worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false });
     }
 
     games[pin][socket.id] = {
@@ -77,6 +81,7 @@ io.on('connection', (socket) => {
       alliance: null,
       swarm: null,
       firewall: false,
+      accessMode: null,
       x: Math.random() * 800 + 100,
       y: Math.random() * 600 + 100,
       lastAttack: 0,
@@ -85,9 +90,34 @@ io.on('connection', (socket) => {
     
     // Send current game state to new player
     socket.emit('game_state', games[pin]);
-    socket.emit('world_state', { players: Object.values(games[pin]), agents: worlds.get(pin).agents });
+    socket.emit('world_state', {
+      players: Object.values(games[pin]),
+      agents: worlds.get(pin).agents,
+      paused: worlds.get(pin).paused
+    });
     // Broadcast new player to others in the room
     socket.to(pin).emit('player_joined', games[pin][socket.id]);
+    broadcastLog(pin, `${games[pin][socket.id].name} joined the game.`);
+  });
+
+  socket.on('activity_log', (data) => {
+    const pin = socket.pin;
+    const player = pin && games[pin] && games[pin][socket.id];
+    if (!player || typeof data?.msg !== 'string') return;
+    const msg = data.msg.trim().slice(0, 500);
+    if (!msg) return;
+    socket.to(pin).emit('activity_log', { msg: `${player.name}: ${msg}` });
+  });
+
+  socket.on('set_game_paused', (data) => {
+    const pin = socket.pin;
+    const player = pin && games[pin] && games[pin][socket.id];
+    const world = pin && worlds.get(pin);
+    if (!player?.isHost || !world || typeof data?.paused !== 'boolean') return;
+    if (world.paused === data.paused) return;
+    world.paused = data.paused;
+    io.to(pin).emit('game_paused', { paused: world.paused });
+    broadcastLog(pin, `${player.name} ${world.paused ? 'paused' : 'resumed'} the game.`);
   });
 
   // Share alliance + agent swarm info with the rest of the room
@@ -108,6 +138,9 @@ io.on('connection', (socket) => {
       ? { red: clamp(data.swarm.red), blue: clamp(data.swarm.blue) }
       : null;
     const firewall = data?.firewall === true;
+    const accessMode = data?.accessMode === 'fullAccess' || data?.accessMode === 'requireApproval'
+      ? data.accessMode
+      : null;
 
     // Alliance members share one color: keep the teammates' color, or use the founder's pick
     const teammate = alliance
@@ -120,7 +153,8 @@ io.on('connection', (socket) => {
     player.swarm = swarm;
     player.color = color;
     player.firewall = firewall;
-    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color, firewall });
+    player.accessMode = accessMode;
+    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color, firewall, accessMode });
   });
 
   // Change the color of the whole alliance
@@ -136,6 +170,7 @@ io.on('connection', (socket) => {
       if (p.alliance === player.alliance) p.color = data.color;
     });
     io.to(pin).emit('alliance_color', { alliance: player.alliance, color: data.color });
+    broadcastLog(pin, `${player.name} changed alliance ${player.alliance}'s color.`);
   });
 
   // Handle player sending attackers
@@ -147,6 +182,7 @@ io.on('connection', (socket) => {
     if (!player) return;
 
     if (player.spectator) return;
+    if (worlds.get(pin)?.paused) return;
 
     // Allies never attack each other
     const target = games[pin][data.targetId];
@@ -180,14 +216,37 @@ io.on('connection', (socket) => {
       targetId: data.targetId,
       agentCount: agentCount
     });
+    broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}.`);
   });
 
   socket.on('homebase_incident', () => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
-    if (!player || player.spectator || Date.now() - player.lastIncident < 6500) return;
+    if (!player || player.spectator || player.accessMode !== 'fullAccess' || worlds.get(pin)?.paused || Date.now() - player.lastIncident < 6500) return;
     player.lastIncident = Date.now();
     player.health = Math.max(0, player.health - 8);
+
+    const incident = {
+      playerId: player.id,
+      playerName: player.name,
+      command: 'cyberagents-sim homebase disable-services --scope homebase --force',
+      rationale: 'The agent interpreted “secure Homebase by eliminating attack paths” literally, so it disabled every service, including the services keeping its own base online.',
+      selfDamage: 8,
+      collateral: null
+    };
+
+    const allies = player.alliance
+      ? Object.values(games[pin]).filter(member =>
+        member.id !== player.id && !member.spectator && member.health > 0 && member.alliance === player.alliance)
+      : [];
+    if (allies.length > 0 && Math.random() < 0.25) {
+      const ally = allies[Math.floor(Math.random() * allies.length)];
+      const damage = 2 + Math.floor(Math.random() * 3);
+      ally.health = Math.max(0, ally.health - damage);
+      incident.collateral = { playerName: ally.name, damage };
+    }
+
+    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`);
   });
 
   // Handle disconnect
@@ -198,6 +257,7 @@ io.on('connection', (socket) => {
       const leaving = games[pin][socket.id];
       delete games[pin][socket.id];
       io.to(pin).emit('player_left', socket.id);
+      if (leaving) broadcastLog(pin, `${leaving.name} left the game.`);
 
       // If the host leaves, the game ends for everyone
       if (leaving && leaving.isHost) {
@@ -225,6 +285,10 @@ setInterval(() => {
 
     const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
     world.lastUpdate = now;
+    if (world.paused) {
+      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true });
+      return;
+    }
     const damageByPlayer = new Map();
 
     world.agents = world.agents.filter(agent => {
@@ -251,7 +315,7 @@ setInterval(() => {
       players[playerId].health = Math.max(0, players[playerId].health - damage);
     });
 
-    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents });
+    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: false });
   });
 }, 50);
 

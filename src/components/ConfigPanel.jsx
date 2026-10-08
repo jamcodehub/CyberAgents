@@ -27,7 +27,7 @@ const TEAM_TYPES = {
 
 export default function ConfigPanel({ isOpen, connectGame, active, players = [], myAlliance = null }) {
   const [configError, setConfigError] = useState("");
-  const [accessMode, setAccessMode] = useState("requireApproval");
+  const [accessMode, setAccessMode] = useState("fullAccess");
   const [teamTypeToAdd, setTeamTypeToAdd] = useState('red');
   const [teams, setTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
@@ -137,8 +137,8 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
             value={accessMode}
             onChange={event => setAccessMode(event.target.value)}
           >
-            <option value="requireApproval">Ask me before every task</option>
             <option value="fullAccess">Grant full access</option>
+            <option value="requireApproval">Ask me before every task</option>
           </select>
           <p>
             {accessMode === "requireApproval"
