@@ -53,15 +53,16 @@ export default function App() {
     stateRef.current = { castles };
   }, [castles]);
 
-  const appendLog = (msg) => {
+  const appendLog = (msg, metadata = {}) => {
     setLogs(prev => {
-      const newLogs = [{ time: new Date().toLocaleTimeString(), msg }, ...prev];
+      const newLogs = [{ time: new Date().toLocaleTimeString(), msg, ...metadata }, ...prev];
       return newLogs.slice(0, 100); 
     });
   };
 
   const addLog = (msg) => {
-    appendLog(msg);
+    const player = stateRef.current.castles.find(castle => castle.isSelf);
+    appendLog(msg, { playerId: player?.id, alliance: player?.alliance, color: player?.color });
     socketRef.current?.emit('activity_log', { msg });
   };
 
@@ -209,7 +210,9 @@ export default function App() {
       setLobbyStartError('');
     });
 
-    newSocket.on('activity_log', ({ msg }) => appendLog(msg));
+    newSocket.on('activity_log', ({ msg, playerId, alliance, color }) => {
+      appendLog(msg, { playerId, alliance, color });
+    });
     newSocket.on('game_paused', ({ paused }) => setIsPaused(paused));
     newSocket.on('game_over', result => {
       setGameResult(result);
@@ -239,6 +242,14 @@ export default function App() {
       setCastles(prev => prev.map(c => c.id === id
         ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null, firewall, accessMode }
         : c));
+    });
+
+    newSocket.on('health_update', updates => {
+      if (!Array.isArray(updates)) return;
+      const healthByPlayer = new Map(updates.map(({ id, health }) => [id, health]));
+      setCastles(prev => prev.map(castle => healthByPlayer.has(castle.id)
+        ? { ...castle, health: healthByPlayer.get(castle.id) }
+        : castle));
     });
 
     newSocket.on('alliance_color', ({ alliance, color }) => {
@@ -660,7 +671,7 @@ export default function App() {
         />
       )}
       <IntelPanel isOpen={openPanel === 'intel'} castles={castles} spectator={isHost} />
-      <LogPanel isOpen={openPanel === 'logs'} logs={logs} />
+      <LogPanel isOpen={openPanel === 'logs'} logs={logs} castles={castles} />
       <AlliancePanel
         isOpen={openPanel === 'alliances'}
         castles={castles}

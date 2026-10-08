@@ -29,6 +29,7 @@ const AGENT_NAMES = [
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const STARTING_HEALTH = 1000;
 const STARTING_TOKENS = 100000;
+const TOKEN_REGEN_PER_SECOND = 5000;
 const TOKENS_PER_AGENT = 1000;
 const TOKENS_PER_STEAL = 10000;
 
@@ -48,8 +49,20 @@ function isTargetable(player) {
   return Boolean(isCompetitor(player) && player.health > 0);
 }
 
-function broadcastLog(pin, msg) {
-  io.to(pin).emit('activity_log', { msg });
+function broadcastLog(pin, msg, actor = null) {
+  io.to(pin).emit('activity_log', {
+    msg,
+    playerId: actor?.id ?? null,
+    alliance: actor?.alliance ?? null,
+    color: actor?.color ?? null
+  });
+}
+
+function broadcastHealth(pin, players) {
+  io.to(pin).emit('health_update', Object.values(players).map(player => ({
+    id: player.id,
+    health: player.health
+  })));
 }
 
 function spawnPosition(room, isHost) {
@@ -98,7 +111,8 @@ function finishGameIfWon(pin) {
     ? `Victory: alliance ${winnerAlliance} is the last alliance standing.`
     : standing.length === 1
       ? `Victory: ${standing[0].name} is the last agent standing.`
-      : 'Game over: no agents remain standing.');
+      : 'Game over: no agents remain standing.',
+  standing[0] ?? null);
 }
 
 io.on('connection', (socket) => {
@@ -176,7 +190,7 @@ io.on('connection', (socket) => {
     });
     // Broadcast new player to others in the room
     socket.to(pin).emit('player_joined', games[pin][socket.id]);
-    broadcastLog(pin, `${games[pin][socket.id].name} joined the game.`);
+    broadcastLog(pin, `${games[pin][socket.id].name} joined the game.`, games[pin][socket.id]);
   });
 
   socket.on('start_game', (acknowledge) => {
@@ -203,7 +217,7 @@ io.on('connection', (socket) => {
     world.lastUpdate = Date.now();
     io.to(pin).emit('game_started');
     io.to(pin).emit('lobby_state', { players: Object.values(games[pin]), started: true });
-    broadcastLog(pin, `${player.name} started the game.`);
+    broadcastLog(pin, `${player.name} started the game.`, player);
     respond({ accepted: true });
   });
 
@@ -213,7 +227,12 @@ io.on('connection', (socket) => {
     if (!player || typeof data?.msg !== 'string') return;
     const msg = data.msg.trim().slice(0, 500);
     if (!msg) return;
-    socket.to(pin).emit('activity_log', { msg: `${player.name}: ${msg}` });
+    socket.to(pin).emit('activity_log', {
+      msg: `${player.name}: ${msg}`,
+      playerId: player.id,
+      alliance: player.alliance,
+      color: player.color
+    });
   });
 
   socket.on('set_game_paused', (data) => {
@@ -224,7 +243,7 @@ io.on('connection', (socket) => {
     if (world.paused === data.paused) return;
     world.paused = data.paused;
     io.to(pin).emit('game_paused', { paused: world.paused });
-    broadcastLog(pin, `${player.name} ${world.paused ? 'paused' : 'resumed'} the game.`);
+    broadcastLog(pin, `${player.name} ${world.paused ? 'paused' : 'resumed'} the game.`, player);
   });
 
   socket.on('move_player', (data) => {
@@ -319,7 +338,7 @@ io.on('connection', (socket) => {
       if (p.alliance === player.alliance) p.color = data.color;
     });
     io.to(pin).emit('alliance_color', { alliance: player.alliance, color: data.color });
-    broadcastLog(pin, `${player.name} changed alliance ${player.alliance}'s color.`);
+    broadcastLog(pin, `${player.name} changed alliance ${player.alliance}'s color.`, player);
   });
 
   // Process game-only agent actions and token transfers.
@@ -414,7 +433,7 @@ io.on('connection', (socket) => {
         targetId: data.targetId,
         agentCount: agentCount
       });
-      broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}, spending ${agentCount}k tokens.`);
+      broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}, spending ${agentCount}k tokens.`, player);
       return;
     }
 
@@ -422,7 +441,7 @@ io.on('connection', (socket) => {
     target.tokens -= stolen;
     player.tokens += stolen;
     respond({ accepted: true, action: data.action, agentCount, targetName: target.name, stolen });
-    broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`);
+    broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`, player);
   });
 
   socket.on('homebase_incident', () => {
@@ -454,7 +473,8 @@ io.on('connection', (socket) => {
       incident.collateral = { playerName: ally.name, damage };
     }
 
-    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity, -${Math.floor(incident.tokensSpent / 1000)}k tokens). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`);
+    broadcastHealth(pin, games[pin]);
+    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity, -${Math.floor(incident.tokensSpent / 1000)}k tokens). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`, player);
   });
 
   // Handle disconnect
@@ -465,7 +485,7 @@ io.on('connection', (socket) => {
       const leaving = games[pin][socket.id];
       delete games[pin][socket.id];
       io.to(pin).emit('player_left', socket.id);
-      if (leaving) broadcastLog(pin, `${leaving.name} left the game.`);
+      if (leaving) broadcastLog(pin, `${leaving.name} left the game.`, leaving);
 
       // If the host leaves, the game ends for everyone
       if (leaving && leaving.isHost) {
@@ -501,9 +521,19 @@ setInterval(() => {
       return;
     }
 
-    const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
+    const elapsedSeconds = Math.max(0, (now - world.lastUpdate) / 1000);
+    const dt = Math.min(elapsedSeconds, 0.1);
     world.lastUpdate = now;
     const damageByPlayer = new Map();
+
+    Object.values(players).forEach(player => {
+      if (isCompetitor(player) && player.health > 0) {
+        player.tokens = Math.min(
+          STARTING_TOKENS,
+          player.tokens + TOKEN_REGEN_PER_SECOND * elapsedSeconds
+        );
+      }
+    });
 
     world.agents = world.agents.filter(agent => {
       const target = players[agent.targetId];
@@ -529,6 +559,7 @@ setInterval(() => {
       players[playerId].health = Math.max(0, players[playerId].health - damage);
     });
 
+    if (damageByPlayer.size > 0) broadcastHealth(pin, players);
     finishGameIfWon(pin);
     io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: world.paused, started: true });
   });

@@ -738,7 +738,8 @@ h1.title {
 /* Alliance colors */
 .castle.allied .icon {
   border-color: var(--base-color);
-  color: var(--base-color);
+  background: var(--base-color);
+  color: #000;
 }
 
 .castle.allied .name {

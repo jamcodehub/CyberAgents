@@ -21,7 +21,13 @@ export default function IntelPanel({ isOpen, castles, spectator = false }) {
         </thead>
         <tbody>
           {castles.map(c => (
-            <tr key={c.id} style={{ opacity: c.health > 0 ? 1 : 0.5 }}>
+            <tr
+              key={c.id}
+              style={{
+                opacity: c.health > 0 ? 1 : 0.5,
+                color: c.spectator ? '#777' : c.alliance && c.color ? c.color : undefined
+              }}
+            >
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
                 {c.health > 0 ? '[ ONLINE ]' : '[ OFFLINE ]'}
               </td>
