@@ -92,7 +92,7 @@ export default function Battlefield({ castles, agents, active, connectGame, myId
           </div>
           <div className="status-item">
             <span>Agents In Transit:</span>
-            <span>{agents.length}</span>
+            <span>{agents.reduce((total, agent) => total + (agent.count || 1), 0)}</span>
           </div>
           {player?.health <= 0 && (
             <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>

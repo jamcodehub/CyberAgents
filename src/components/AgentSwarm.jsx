@@ -4,11 +4,12 @@ const RING_SIZE = 12;
 
 function Ring({ count, type, radius, label }) {
   if (!count) return null;
+  const visibleCount = Math.min(count, RING_SIZE);
   return (
-    <div className={`swarm-ring ${type}`}>
-      {Array.from({ length: count }, (_, i) => {
+    <div className={`swarm-ring ${type}`} title={`${count} ${label}${count === 1 ? '' : 's'}`}>
+      {Array.from({ length: visibleCount }, (_, i) => {
         const ring = Math.floor(i / RING_SIZE);
-        const inRing = Math.min(RING_SIZE, count - ring * RING_SIZE);
+        const inRing = Math.min(RING_SIZE, visibleCount - ring * RING_SIZE);
         const angle = ((i % RING_SIZE) / inRing) * 360 + ring * 15;
         return (
           <span
@@ -17,7 +18,7 @@ function Ring({ count, type, radius, label }) {
             title={label}
             style={{ transform: `rotate(${angle}deg) translateX(${radius + ring * 9}px)` }}
           >
-            <i style={{ animationDelay: `${(i % 7) * -0.13}s` }} />
+            <i />
           </span>
         );
       })}

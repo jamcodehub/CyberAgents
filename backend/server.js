@@ -396,16 +396,15 @@ io.on('connection', (socket) => {
     player.tokens -= actionCost;
 
     if (data.action === 'attack') {
-      for (let i = 0; i < agentCount; i++) {
-        world.agents.push({
-          id: `projectile-${nextAgentId++}`,
-          ownerId: socket.id,
-          targetId: target.id,
-          x: player.x + (Math.random() - 0.5) * 40,
-          y: player.y + (Math.random() - 0.5) * 40,
-          type: 'attacker'
-        });
-      }
+      world.agents.push({
+        id: `projectile-${nextAgentId++}`,
+        ownerId: socket.id,
+        targetId: target.id,
+        x: player.x,
+        y: player.y,
+        count: agentCount,
+        type: 'attacker'
+      });
 
       respond({ accepted: true, action: data.action, agentCount, targetName: target.name });
       io.to(pin).emit('attack_launched', {
@@ -495,21 +494,13 @@ setInterval(() => {
   worlds.forEach((world, pin) => {
     const players = games[pin];
     if (!players) return;
+    if (!world.started || world.gameOver || world.paused) {
+      world.lastUpdate = now;
+      return;
+    }
 
     const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
     world.lastUpdate = now;
-    if (!world.started) {
-      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: false, started: false });
-      return;
-    }
-    if (world.gameOver) {
-      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true, started: true });
-      return;
-    }
-    if (world.paused) {
-      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true, started: true });
-      return;
-    }
     const damageByPlayer = new Map();
 
     world.agents = world.agents.filter(agent => {
@@ -522,7 +513,7 @@ setInterval(() => {
       const dy = target.y - agent.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance < 10) {
-        const damage = target.firewall ? 1 : 5;
+        const damage = (target.firewall ? 1 : 5) * (agent.count || 1);
         damageByPlayer.set(target.id, (damageByPlayer.get(target.id) || 0) + damage);
         return false;
       }
@@ -539,7 +530,7 @@ setInterval(() => {
     finishGameIfWon(pin);
     io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: world.paused, started: true });
   });
-}, 50);
+}, 100);
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

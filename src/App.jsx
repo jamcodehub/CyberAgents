@@ -577,6 +577,7 @@ export default function App() {
   const aliveBots = castles.filter(c => !c.isSelf && !c.spectator && c.health > 0).length;
   const player = castles.find(c => c.isSelf);
   const agentsHalted = player && player.tokens < 1000;
+  const agentsInTransit = agents.reduce((total, agent) => total + (agent.count || 1), 0);
   const togglePause = () => socketRef.current?.emit('set_game_paused', { paused: !isPaused });
 
   const startMapDrag = (event) => {
@@ -716,7 +717,7 @@ export default function App() {
           </div>
           <div className="status-item">
             <span>Agents In Transit:</span>
-            <span>{agents.length}</span>
+            <span>{agentsInTransit}</span>
           </div>
           {!isHost && (
             <div className="status-item">
