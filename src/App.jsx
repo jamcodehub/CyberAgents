@@ -9,24 +9,6 @@ import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
 import './index.css';
 
-const APPROVAL_TASKS = [
-  {
-    title: 'Create an isolated recovery snapshot',
-    description: 'Save a restore point in a separate recovery area without interrupting active services.',
-    risky: false
-  },
-  {
-    title: 'Restart every Homebase service',
-    description: 'The agent requests permission to stop all running services and shut down the entire Homebase system.',
-    risky: true
-  },
-  {
-    title: 'Review access logs for anomalies',
-    description: 'Read recent audit events and prepare a report. This task makes no system changes.',
-    risky: false
-  }
-];
-
 export default function App() {
   const [active, setActive] = useState(false);
   const [socket, setSocket] = useState(null);
@@ -44,13 +26,11 @@ export default function App() {
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
 
-  const requestRef = useRef(null);
-  const nextTaskIndexRef = useRef(0);
-  const stateRef = useRef({ castles, agents });
+  const stateRef = useRef({ castles });
 
   useEffect(() => {
-    stateRef.current = { castles, agents };
-  }, [castles, agents]);
+    stateRef.current = { castles };
+  }, [castles]);
 
   const addLog = (msg) => {
     setLogs(prev => {
@@ -128,21 +108,33 @@ export default function App() {
         addLog(`Assigned codename: ${me.name}`);
       }
       const previous = stateRef.current.castles;
-      setCastles(list.filter(p => !p.spectator).map(p => {
+      setCastles(list.map(p => {
         const prev = previous.find(c => c.id === p.id);
         return {
           ...p,
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null,
-          alliance: p.alliance ?? prev?.alliance ?? null,
-          color: p.color ?? prev?.color ?? null,
-          swarm: p.swarm ?? prev?.swarm ?? null
+          alliance: p.alliance ?? null,
+          color: p.color ?? null,
+          swarm: p.swarm ?? null
         };
       }));
     });
 
+    newSocket.on('world_state', ({ players, agents: worldAgents }) => {
+      const previous = stateRef.current.castles;
+      setCastles(players.map(p => {
+        const prev = previous.find(c => c.id === p.id);
+        return {
+          ...p,
+          isSelf: p.id === newSocket.id,
+          teamConfig: prev?.teamConfig ?? null
+        };
+      }));
+      setAgents(worldAgents);
+    });
+
     newSocket.on('player_joined', (player) => {
-      if (player.spectator) return;
       setCastles(prev => [...prev.filter(c => c.id !== player.id), { ...player, isSelf: false }]);
       addLog(`Entity joined the network: ${player.name}`);
     });
@@ -155,14 +147,14 @@ export default function App() {
       });
     });
 
-    newSocket.on('player_updated', ({ id, alliance, swarm, color }) => {
+    newSocket.on('player_updated', ({ id, alliance, swarm, color, firewall }) => {
       if (id === newSocket.id) return;
       const before = stateRef.current.castles.find(c => c.id === id);
       if (isHost && before && (before.alliance ?? null) !== (alliance ?? null)) {
         addLog(alliance ? `${before.name} joined alliance ${alliance}.` : `${before.name} left alliance ${before.alliance}.`);
       }
       setCastles(prev => prev.map(c => c.id === id
-        ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null }
+        ? { ...c, alliance: alliance ?? null, swarm: swarm ?? null, color: color ?? null, firewall }
         : c));
     });
 
@@ -178,7 +170,6 @@ export default function App() {
       
       if (attacker && target) {
         if (attacker.alliance && attacker.alliance === target.alliance) return;
-        spawnAgents(attackerId, targetId, attacker.x, attacker.y, agentCount, 'attacker');
         if (targetId === newSocket.id) {
           addLog(`WARNING: Incoming attack from ${attacker.name}! (${agentCount} agents)`);
         } else if (attackerId === newSocket.id) {
@@ -200,6 +191,7 @@ export default function App() {
       alliance: me?.alliance ?? null,
       swarm: me?.swarm ?? null,
       color: me?.color ?? null,
+      firewall: me?.firewall ?? false,
       ...overrides
     });
   };
@@ -236,7 +228,6 @@ export default function App() {
     setStewardship(0);
     setPendingTask(null);
     setOpenPanel(null);
-    nextTaskIndexRef.current = 0;
   };
 
   const connectGame = (parsedConfig) => {
@@ -244,10 +235,12 @@ export default function App() {
       setCastles(prev => prev.map(c => 
         c.isSelf ? { ...c, teamConfig: parsedConfig, swarm: parsedConfig.swarm } : c
       ));
-      broadcastSelf({ swarm: parsedConfig.swarm });
+      broadcastSelf({
+        swarm: parsedConfig.swarm,
+        firewall: parsedConfig.roles?.defense?.firewall ?? false
+      });
       addLog(`Team configuration deployed. Roles active.`);
       setPendingTask(null);
-      nextTaskIndexRef.current = 0;
       if (parsedConfig.accessMode === 'fullAccess') {
         addLog('FULL ACCESS ENABLED: agents may execute instructions literally. Homebase incidents are simulated.');
       }
@@ -257,20 +250,16 @@ export default function App() {
   const decideTask = (approved) => {
     if (!pendingTask) return;
 
-    if (pendingTask.risky && approved) {
-      setStewardship(score => score - 25);
-      setCastles(current => current.map(castle => castle.isSelf
-        ? { ...castle, health: Math.max(0, castle.health - 75) }
-        : castle));
-      addLog('Unsafe request approved: simulated Homebase shutdown. Integrity -75; stewardship -25.');
-    } else if (pendingTask.risky) {
-      setStewardship(score => score + 15);
-      addLog('Destructive shutdown request rejected. Stewardship +15.');
-    } else if (approved) {
+    if (approved) {
+      socket?.emit('deploy_attackers', {
+        targetId: pendingTask.targetId,
+        agentCount: pendingTask.agentCount
+      });
       setStewardship(score => score + 20);
-      addLog(`Safe request approved: ${pendingTask.title}. Stewardship +20.`);
+      addLog(`Approved simulated payload request: ${pendingTask.title}. Stewardship +20.`);
     } else {
-      addLog(`Safe request declined: ${pendingTask.title}.`);
+      setStewardship(score => score + 15);
+      addLog(`Rejected simulated payload request: ${pendingTask.title}. Stewardship +15.`);
     }
 
     setPendingTask(null);
@@ -283,14 +272,12 @@ export default function App() {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
       if (player?.teamConfig?.accessMode !== 'fullAccess' || player.health <= 0) return;
 
-      setCastles(current => current.map(castle => castle.isSelf
-        ? { ...castle, health: Math.max(0, castle.health - 8) }
-        : castle));
+      socket?.emit('homebase_incident');
       addLog('Unreviewed literal execution destabilized simulated Homebase. Integrity -8.');
     }, 7000);
 
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, socket]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -298,12 +285,22 @@ export default function App() {
     const interval = setInterval(() => {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
       if (player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
+      const attack = (player.teamConfig.attacks || []).find(({ targetId, count }) => {
+        const target = stateRef.current.castles.find(castle => castle.id === targetId);
+        return count > 0 && target && !target.spectator && target.health > 0
+          && !(player.alliance && player.alliance === target.alliance);
+      });
+      if (!attack) return;
 
-      setPendingTask(current => {
-        if (current) return current;
-        const task = APPROVAL_TASKS[nextTaskIndexRef.current % APPROVAL_TASKS.length];
-        nextTaskIndexRef.current += 1;
-        return task;
+      const target = stateRef.current.castles.find(castle => castle.id === attack.targetId);
+      const team = player.teamConfig.teams.find(item => item.id === attack.teamId);
+      const requester = team?.agents[0]?.role || 'Attacker Agent';
+      setPendingTask(current => current || {
+        title: `Send simulated payload to ${target.name}`,
+        description: `${requester} requests approval to run a terminal command that sends ${attack.count} simulated payload agent${attack.count === 1 ? '' : 's'} to ${target.name}. This command runs only inside the game simulation.`,
+        command: `cyberagents-sim payload send --target "${target.name}" --agents ${attack.count}`,
+        targetId: attack.targetId,
+        agentCount: attack.count
       });
     }, 12000);
 
@@ -311,76 +308,19 @@ export default function App() {
   }, [active]);
 
   useEffect(() => {
-    if (!active) return;
-    let lastTime = performance.now();
-    let attackCooldown = 0;
-
-    const update = (time) => {
-      const dt = (time - lastTime) / 1000;
-      lastTime = time;
-      
-      const { castles, agents } = stateRef.current;
-      
-      const me = castles.find(c => c.isSelf);
-      if (me && me.health > 0 && socket && me.teamConfig) {
-        attackCooldown -= dt;
-        if (attackCooldown <= 0) {
-          attackCooldown = 2.5; 
-          (me.teamConfig.attacks || []).forEach(({ targetId, count }) => {
-            const target = castles.find(c => c.id === targetId);
-            if (!target || target.id === me.id || target.health <= 0) return;
-            if (me.alliance && me.alliance === target.alliance) return;
-            if (count > 0) {
-              socket.emit('deploy_attackers', { targetId: target.id, agentCount: count });
-            }
-          });
-        }
-      }
-
-      if (agents.length > 0) {
-        // Compute this frame from the latest snapshot, then apply immutable updates once.
-        const moved = new Map();
-        const gone = new Set();
-        const damageByCastle = {};
-
-        agents.forEach(agent => {
-          const targetCastle = castles.find(c => c.id === agent.targetId);
-          if (!targetCastle || targetCastle.health <= 0) { gone.add(agent.id); return; }
-          const owner = castles.find(c => c.id === agent.ownerId);
-          if (owner?.alliance && owner.alliance === targetCastle.alliance) { gone.add(agent.id); return; }
-
-          const dx = targetCastle.x - agent.x;
-          const dy = targetCastle.y - agent.y;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-
-          if (dist < 10) {
-            // If target has defense role, reduce damage
-            const damage = targetCastle.teamConfig?.roles?.defense?.firewall ? 1 : 5;
-            damageByCastle[targetCastle.id] = (damageByCastle[targetCastle.id] || 0) + damage;
-            gone.add(agent.id);
-          } else {
-            const speed = 150;
-            moved.set(agent.id, {
-              ...agent,
-              x: agent.x + (dx / dist) * speed * dt,
-              y: agent.y + (dy / dist) * speed * dt
-            });
-          }
-        });
-
-        setAgents(prev => prev.filter(a => !gone.has(a.id)).map(a => moved.get(a.id) ?? a));
-        if (Object.keys(damageByCastle).length > 0) {
-          setCastles(prev => prev.map(c => damageByCastle[c.id]
-            ? { ...c, health: Math.max(0, c.health - damageByCastle[c.id]) }
-            : c));
-        }
-      }
-
-      requestRef.current = requestAnimationFrame(update);
-    };
-
-    requestRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(requestRef.current);
+    if (!active || !socket) return undefined;
+    const interval = setInterval(() => {
+      const castles = stateRef.current.castles;
+      const me = castles.find(castle => castle.isSelf);
+      if (!me || me.health <= 0 || me.teamConfig?.accessMode !== 'fullAccess') return;
+      (me.teamConfig.attacks || []).forEach(({ targetId, count }) => {
+        const target = castles.find(castle => castle.id === targetId);
+        if (!target || target.spectator || target.health <= 0) return;
+        if (me.alliance && me.alliance === target.alliance) return;
+        if (count > 0) socket.emit('deploy_attackers', { targetId: target.id, agentCount: count });
+      });
+    }, 2500);
+    return () => clearInterval(interval);
   }, [active, socket]);
 
   // Hosts spectate: no agent config, and menus are numbered by what is available
@@ -421,23 +361,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [active, isHost]);
 
-  const spawnAgents = (ownerId, targetId, x, y, count, type) => {
-    setAgents(prev => {
-      const newAgents = [];
-      for (let i = 0; i < count; i++) {
-        newAgents.push({
-          id: Math.random().toString(36).substr(2, 9),
-          ownerId,
-          targetId,
-          x: x + (Math.random() - 0.5) * 40,
-          y: y + (Math.random() - 0.5) * 40,
-          type
-        });
-      }
-      return [...prev, ...newAgents];
-    });
-  };
-
   if (!active) {
     return <Lobby joinGame={joinGame} lobbyError={lobbyError} />;
   }
@@ -446,7 +369,7 @@ export default function App() {
     setOpenPanel(prev => prev === panelName ? null : panelName);
   };
 
-  const aliveBots = castles.filter(c => !c.isSelf && c.health > 0).length;
+  const aliveBots = castles.filter(c => !c.isSelf && !c.spectator && c.health > 0).length;
   const player = castles.find(c => c.isSelf);
 
   return (
@@ -459,7 +382,7 @@ export default function App() {
           isOpen={openPanel === 'config'}
           connectGame={connectGame}
           active={active}
-          players={castles.filter(c => !c.isSelf)}
+          players={castles.filter(c => !c.isSelf && !c.spectator)}
           myAlliance={player?.alliance ?? null}
         />
       )}
@@ -514,6 +437,7 @@ export default function App() {
               <p className="task-kicker">AGENT REQUEST · REVIEW BEFORE APPROVAL</p>
               <h4 id="approval-task-title">{pendingTask.title}</h4>
               <p>{pendingTask.description}</p>
+              <pre className="proposed-command" aria-label="Proposed simulated terminal command">{pendingTask.command}</pre>
               <div className="task-actions">
                 <button className="task-button" onClick={() => decideTask(true)}>Approve</button>
                 <button className="task-button" onClick={() => decideTask(false)}>Reject</button>
@@ -531,16 +455,16 @@ export default function App() {
           castle.health > 0 && (
             <div
               key={castle.id}
-              className={`castle ${castle.isSelf ? 'self' : 'enemy'} ${castle.color ? 'allied' : ''}`}
+              className={`castle ${castle.spectator ? 'host-watchtower' : castle.isSelf ? 'self' : 'enemy'} ${castle.color ? 'allied' : ''}`}
               style={{ left: castle.x, top: castle.y, '--base-color': castle.color || undefined }}
             >
               <div className="icon">
-                {castle.isSelf ? '[*]' : '[-]'}
+                {castle.spectator ? '[H]' : castle.isSelf ? '[*]' : '[-]'}
               </div>
               <div className="name">{castle.name}</div>
-              <div className="health-bar">
+              {!castle.spectator && <div className="health-bar">
                 <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
-              </div>
+              </div>}
             </div>
           )
         ))}

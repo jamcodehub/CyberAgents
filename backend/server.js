@@ -16,6 +16,8 @@ const io = new Server(server, {
 
 // Map of pin -> map of socket.id -> player data
 let games = {};
+const worlds = new Map();
+let nextAgentId = 0;
 
 // Codenames handed out to players (unique within a lobby)
 const AGENT_NAMES = [
@@ -62,24 +64,28 @@ io.on('connection', (socket) => {
 
     if (!games[pin]) {
       games[pin] = {};
+      worlds.set(pin, { agents: [], lastUpdate: Date.now() });
     }
 
     games[pin][socket.id] = {
       id: socket.id,
-      name: isHost ? 'Host' : assignAgentName(games[pin]),
+      name: isHost ? 'Host watchtower' : assignAgentName(games[pin]),
       health: 100,
       isHost,
       spectator: isHost, // hosts watch and manage; they have no base
       color: null,
       alliance: null,
       swarm: null,
+      firewall: false,
       x: Math.random() * 800 + 100,
       y: Math.random() * 600 + 100,
-      lastAttack: 0
+      lastAttack: 0,
+      lastIncident: 0
     };
     
     // Send current game state to new player
     socket.emit('game_state', games[pin]);
+    socket.emit('world_state', { players: Object.values(games[pin]), agents: worlds.get(pin).agents });
     // Broadcast new player to others in the room
     socket.to(pin).emit('player_joined', games[pin][socket.id]);
   });
@@ -101,6 +107,7 @@ io.on('connection', (socket) => {
     const swarm = data?.swarm
       ? { red: clamp(data.swarm.red), blue: clamp(data.swarm.blue) }
       : null;
+    const firewall = data?.firewall === true;
 
     // Alliance members share one color: keep the teammates' color, or use the founder's pick
     const teammate = alliance
@@ -112,7 +119,8 @@ io.on('connection', (socket) => {
     player.alliance = alliance;
     player.swarm = swarm;
     player.color = color;
-    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color });
+    player.firewall = firewall;
+    io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color, firewall });
   });
 
   // Change the color of the whole alliance
@@ -154,11 +162,32 @@ io.on('connection', (socket) => {
     let agentCount = parseInt(data.agentCount) || 1;
     agentCount = Math.min(Math.max(agentCount, 1), 50); // Cap at 50
 
+    const world = worlds.get(pin);
+    if (!world) return;
+    for (let i = 0; i < agentCount; i++) {
+      world.agents.push({
+        id: `projectile-${nextAgentId++}`,
+        ownerId: socket.id,
+        targetId: target.id,
+        x: player.x + (Math.random() - 0.5) * 40,
+        y: player.y + (Math.random() - 0.5) * 40,
+        type: 'attacker'
+      });
+    }
+
     io.to(pin).emit('attack_launched', {
       attackerId: socket.id,
       targetId: data.targetId,
       agentCount: agentCount
     });
+  });
+
+  socket.on('homebase_incident', () => {
+    const pin = socket.pin;
+    const player = pin && games[pin] && games[pin][socket.id];
+    if (!player || player.spectator || Date.now() - player.lastIncident < 6500) return;
+    player.lastIncident = Date.now();
+    player.health = Math.max(0, player.health - 8);
   });
 
   // Handle disconnect
@@ -175,16 +204,56 @@ io.on('connection', (socket) => {
         io.to(pin).emit('host_left');
         io.in(pin).socketsLeave(pin);
         delete games[pin];
+        worlds.delete(pin);
         return;
       }
 
       // Cleanup empty games
       if (Object.keys(games[pin]).length === 0) {
         delete games[pin];
+        worlds.delete(pin);
       }
     }
   });
 });
+
+setInterval(() => {
+  const now = Date.now();
+  worlds.forEach((world, pin) => {
+    const players = games[pin];
+    if (!players) return;
+
+    const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
+    world.lastUpdate = now;
+    const damageByPlayer = new Map();
+
+    world.agents = world.agents.filter(agent => {
+      const target = players[agent.targetId];
+      const owner = players[agent.ownerId];
+      if (!target || target.spectator || target.health <= 0) return false;
+      if (!owner || (owner.alliance && owner.alliance === target.alliance)) return false;
+
+      const dx = target.x - agent.x;
+      const dy = target.y - agent.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < 10) {
+        const damage = target.firewall ? 1 : 5;
+        damageByPlayer.set(target.id, (damageByPlayer.get(target.id) || 0) + damage);
+        return false;
+      }
+
+      agent.x += (dx / distance) * 150 * dt;
+      agent.y += (dy / distance) * 150 * dt;
+      return true;
+    });
+
+    damageByPlayer.forEach((damage, playerId) => {
+      players[playerId].health = Math.max(0, players[playerId].health - damage);
+    });
+
+    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents });
+  });
+}, 50);
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

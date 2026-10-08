@@ -142,8 +142,8 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
           </select>
           <p>
             {accessMode === "requireApproval"
-              ? "You review each request. Read the proposed action before approving."
-              : "Unrestricted access can make agents follow instructions literally and destabilize Homebase."}
+              ? "Attacker agents must show you a simulated terminal command to send each payload. Review it before approving."
+              : "Agents send simulated payloads without asking and may destabilize Homebase."}
             {" "}Simulation only; no real system is accessed.
           </p>
         </div>

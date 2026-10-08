@@ -175,6 +175,16 @@ h1.title {
   border-style: dotted;
 }
 
+.castle.host-watchtower .icon {
+  border-color: #4de1ff;
+  color: #4de1ff;
+  box-shadow: 0 0 8px #4de1ff;
+}
+
+.castle.host-watchtower .name {
+  color: #4de1ff;
+}
+
 .castle .name {
   margin-top: 5px;
   font-size: 1rem;
@@ -423,6 +433,16 @@ h1.title {
 .approval-task > p:not(.task-kicker) {
   font-size: 1rem;
   line-height: 1.2;
+}
+
+.proposed-command {
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+  padding: 6px;
+  border: 1px solid #56715e;
+  color: #b8f5c9;
+  font: inherit;
+  font-size: 0.95rem;
 }
 
 .task-actions {
