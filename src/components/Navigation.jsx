@@ -23,6 +23,7 @@ const buttonStyle = (selected, dashed = false) => ({
 
 export default function Navigation({
   pin,
+  agentId,
   openPanel,
   onTogglePanel,
   onLeave,
@@ -54,6 +55,10 @@ export default function Navigation({
               {item.label}
             </button>
           ))}
+        </div>
+
+        <div className="menu-agent-id" title={`Your in-game identity: ${agentId}`}>
+          AGENT ID: <strong>{agentId}</strong>
         </div>
 
         <button onClick={handleLeave} style={{ ...buttonStyle(false, true), marginTop: 'auto' }}>

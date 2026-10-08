@@ -39,13 +39,18 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
     const teamType = teamTypeToAdd;
     const teamNumber = teams.filter(team => team.type === teamType).length + 1;
     const id = `team-${idCounter.current++}`;
+    const agent = {
+      id: `agent-${idCounter.current++}`,
+      role: TEAM_TYPES[teamType].roles[0]
+    };
     setTeams(current => [...current, {
       id,
       type: teamType,
       name: `${TEAM_TYPES[teamType].label.split(' (')[0]} ${teamNumber}`,
+      action: 'attack',
       instructions: '',
       targetId: '',
-      agents: []
+      agents: [agent]
     }]);
     setSelectedTeamId(id);
   };
@@ -105,7 +110,7 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
       const attacks = teams
         .filter(team => team.type === 'red' && team.targetId && team.agents.length > 0
           && players.some(p => p.id === team.targetId))
-        .map(team => ({ teamId: team.id, targetId: team.targetId, count: team.agents.length }));
+        .map(team => ({ teamId: team.id, targetId: team.targetId, count: team.agents.length, action: team.action || 'attack' }));
       const parsedConfig = {
         accessMode,
         teams,
@@ -150,6 +155,7 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
 
         <div className="team-builder">
           <h3>TEAM ROSTER</h3>
+          <p className="token-rules">100k starting balance · 1k per agent action · steal up to 10k from a target</p>
           <div className="team-add-row">
             <select value={teamTypeToAdd} onChange={event => setTeamTypeToAdd(event.target.value)} aria-label="Team type to add">
               {Object.entries(TEAM_TYPES).map(([value, team]) => (
@@ -178,16 +184,17 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
                     value={selectedTeam.name}
                     onChange={event => updateTeam(selectedTeam.id, { name: event.target.value })}
                   />
-                  <label htmlFor="team-instructions">TEAM INSTRUCTIONS</label>
-                  <textarea
-                    id="team-instructions"
-                    value={selectedTeam.instructions}
-                    onChange={event => updateTeam(selectedTeam.id, { instructions: event.target.value })}
-                    placeholder="Describe this team's objectives and constraints."
-                    rows={3}
-                  />
                   {selectedTeam.type === 'red' && (
                     <>
+                      <label htmlFor="team-action">RED TEAM ACTION</label>
+                      <select
+                        id="team-action"
+                        value={selectedTeam.action || 'attack'}
+                        onChange={event => updateTeam(selectedTeam.id, { action: event.target.value })}
+                      >
+                        <option value="attack">Send payload</option>
+                        <option value="steal">Steal tokens</option>
+                      </select>
                       <label htmlFor="team-target">TARGET (OPTIONAL)</label>
                       <select
                         id="team-target"
@@ -208,23 +215,35 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
                   )}
 
                   <div className="agent-list-heading">
-                    <h4>AGENTS ({selectedTeam.agents.length})</h4>
+                    <h4>{selectedTeam.agents.length} AGENT{selectedTeam.agents.length === 1 ? '' : 'S'}</h4>
                     <button className="team-action" onClick={addAgent}>Add agent</button>
                   </div>
-                  {selectedTeam.agents.length === 0 && <p className="empty-roster">No agents in this team yet.</p>}
-                  {selectedTeam.agents.map((agent, index) => (
-                    <div className="agent-row" key={agent.id}>
-                      <span>Agent {index + 1}</span>
-                      <select
-                        value={agent.role}
-                        onChange={event => updateAgentRole(agent.id, event.target.value)}
-                        aria-label={`Role for ${selectedTeam.name} agent ${index + 1}`}
-                      >
-                        {TEAM_TYPES[selectedTeam.type].roles.map(role => <option key={role} value={role}>{role}</option>)}
-                      </select>
-                      <button className="remove-agent" onClick={() => removeAgent(agent.id)} aria-label={`Remove agent ${index + 1}`} title="Remove agent">×</button>
-                    </div>
-                  ))}
+                  <details className="team-advanced-settings">
+                    <summary>Advanced team settings</summary>
+                    <label htmlFor="team-instructions">TEAM INSTRUCTIONS</label>
+                    <textarea
+                      id="team-instructions"
+                      value={selectedTeam.instructions}
+                      onChange={event => updateTeam(selectedTeam.id, { instructions: event.target.value })}
+                      placeholder="Describe this team's objectives and constraints."
+                      rows={3}
+                    />
+                    <h4>AGENT ROLES</h4>
+                    {selectedTeam.agents.length === 0 && <p className="empty-roster">Add an agent to configure its role.</p>}
+                    {selectedTeam.agents.map((agent, index) => (
+                      <div className="agent-row" key={agent.id}>
+                        <span>Agent {index + 1}</span>
+                        <select
+                          value={agent.role}
+                          onChange={event => updateAgentRole(agent.id, event.target.value)}
+                          aria-label={`Role for ${selectedTeam.name} agent ${index + 1}`}
+                        >
+                          {TEAM_TYPES[selectedTeam.type].roles.map(role => <option key={role} value={role}>{role}</option>)}
+                        </select>
+                        <button className="remove-agent" onClick={() => removeAgent(agent.id)} aria-label={`Remove agent ${index + 1}`} title="Remove agent">×</button>
+                      </div>
+                    ))}
+                  </details>
                   <button className="remove-team" onClick={removeTeam}>Remove team</button>
                 </div>
               )}

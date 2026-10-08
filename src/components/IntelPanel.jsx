@@ -13,6 +13,7 @@ export default function IntelPanel({ isOpen, castles, spectator = false }) {
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>STATUS</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>NODE NAME</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>INTEGRITY</th>
+            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>TOKENS</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>{spectator ? 'ALLIANCE' : 'AFFILIATION'}</th>
           </tr>
         </thead>
@@ -29,13 +30,16 @@ export default function IntelPanel({ isOpen, castles, spectator = false }) {
                 {Math.floor(c.health)}%
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+                {c.spectator ? '—' : `${Math.floor((c.tokens ?? 0) / 1000).toLocaleString()}k`}
+              </td>
+              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
                 {spectator ? (c.alliance || '-') : (c.isSelf ? 'FRIENDLY' : 'HOSTILE')}
               </td>
             </tr>
           ))}
           {castles.length === 0 && (
             <tr>
-              <td colSpan="4" style={{ padding: '20px', textAlign: 'center' }}>NO DATA AVAILABLE. CONNECT TO NETWORK.</td>
+              <td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>NO DATA AVAILABLE. CONNECT TO NETWORK.</td>
             </tr>
           )}
         </tbody>

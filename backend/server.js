@@ -27,6 +27,9 @@ const AGENT_NAMES = [
 ];
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const STARTING_TOKENS = 100000;
+const TOKENS_PER_AGENT = 1000;
+const TOKENS_PER_STEAL = 10000;
 
 function assignAgentName(room) {
   const taken = new Set(Object.values(room || {}).map(p => p.name));
@@ -38,6 +41,16 @@ function assignAgentName(room) {
 
 function broadcastLog(pin, msg) {
   io.to(pin).emit('activity_log', { msg });
+}
+
+function spawnPosition(room, isHost) {
+  if (isHost) return { x: 500, y: 350 };
+  const playerCount = Object.values(room).filter(player => !player.spectator).length;
+  const angle = playerCount * 2.399963229728653;
+  return {
+    x: 500 + Math.cos(angle) * 260,
+    y: 350 + Math.sin(angle) * 190
+  };
 }
 
 io.on('connection', (socket) => {
@@ -71,10 +84,12 @@ io.on('connection', (socket) => {
       worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false });
     }
 
+    const position = spawnPosition(games[pin], isHost);
     games[pin][socket.id] = {
       id: socket.id,
       name: isHost ? 'Host watchtower' : assignAgentName(games[pin]),
       health: 100,
+      tokens: isHost ? 0 : STARTING_TOKENS,
       isHost,
       spectator: isHost, // hosts watch and manage; they have no base
       color: null,
@@ -82,9 +97,9 @@ io.on('connection', (socket) => {
       swarm: null,
       firewall: false,
       accessMode: null,
-      x: Math.random() * 800 + 100,
-      y: Math.random() * 600 + 100,
-      lastAttack: 0,
+      actions: [],
+      ...position,
+      lastActionByTarget: {},
       lastIncident: 0
     };
     
@@ -120,6 +135,16 @@ io.on('connection', (socket) => {
     broadcastLog(pin, `${player.name} ${world.paused ? 'paused' : 'resumed'} the game.`);
   });
 
+  socket.on('move_player', (data) => {
+    const pin = socket.pin;
+    const host = pin && games[pin] && games[pin][socket.id];
+    if (!host?.isHost || !Number.isFinite(data?.x) || !Number.isFinite(data?.y)) return;
+    const target = games[pin][data.playerId];
+    if (!target) return;
+    target.x = Math.min(1000, Math.max(0, data.x));
+    target.y = Math.min(700, Math.max(0, data.y));
+  });
+
   // Share alliance + agent swarm info with the rest of the room
   socket.on('player_update', (data) => {
     const pin = socket.pin;
@@ -141,6 +166,14 @@ io.on('connection', (socket) => {
     const accessMode = data?.accessMode === 'fullAccess' || data?.accessMode === 'requireApproval'
       ? data.accessMode
       : null;
+    const actions = Array.isArray(data?.actions)
+      ? data.actions.slice(0, 50).flatMap(action => {
+        if (action?.action !== 'attack' && action?.action !== 'steal') return [];
+        if (typeof action.targetId !== 'string') return [];
+        const count = Math.min(Math.max(parseInt(action.count, 10) || 0, 0), 50);
+        return count > 0 ? [{ action: action.action, targetId: action.targetId, count }] : [];
+      })
+      : [];
 
     // Alliance members share one color: keep the teammates' color, or use the founder's pick
     const teammate = alliance
@@ -154,6 +187,7 @@ io.on('connection', (socket) => {
     player.color = color;
     player.firewall = firewall;
     player.accessMode = accessMode;
+    player.actions = actions;
     io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color, firewall, accessMode });
   });
 
@@ -173,57 +207,73 @@ io.on('connection', (socket) => {
     broadcastLog(pin, `${player.name} changed alliance ${player.alliance}'s color.`);
   });
 
-  // Handle player sending attackers
-  socket.on('deploy_attackers', (data) => {
+  // Process game-only agent actions and token transfers.
+  socket.on('agent_action', (data) => {
     const pin = socket.pin;
     if (!pin || !games[pin]) return;
 
     const player = games[pin][socket.id];
-    if (!player) return;
-
-    if (player.spectator) return;
+    if (!player || player.spectator) return;
     if (worlds.get(pin)?.paused) return;
+    if (data?.action !== 'attack' && data?.action !== 'steal') return;
 
-    // Allies never attack each other
     const target = games[pin][data.targetId];
     if (!target || target.id === player.id || target.spectator) return;
     if (player.alliance && player.alliance === target.alliance) return;
+    if (data.action === 'steal' && target.tokens <= 0) return;
+    const configuredCount = player.actions
+      .filter(action => action.action === data.action && action.targetId === target.id)
+      .reduce((total, action) => total + action.count, 0);
+    if (configuredCount === 0) return;
 
-    // Rate limiting: max 1 attack per 2 seconds
+    // Rate-limit repeated actions against the same target.
     const now = Date.now();
-    if (now - player.lastAttack < 2000) return;
-    player.lastAttack = now;
+    const actionKey = `${data.action}:${target.id}`;
+    if (now - (player.lastActionByTarget[actionKey] || 0) < 2000) return;
 
     // Hard limit on agent count to prevent crashes
     let agentCount = parseInt(data.agentCount) || 1;
-    agentCount = Math.min(Math.max(agentCount, 1), 50); // Cap at 50
+    agentCount = Math.min(Math.max(agentCount, 1), configuredCount, 50);
+    const actionCost = agentCount * TOKENS_PER_AGENT;
+    if (player.tokens < actionCost) return;
+    player.lastActionByTarget[actionKey] = now;
+    player.tokens -= actionCost;
 
     const world = worlds.get(pin);
     if (!world) return;
-    for (let i = 0; i < agentCount; i++) {
-      world.agents.push({
-        id: `projectile-${nextAgentId++}`,
-        ownerId: socket.id,
-        targetId: target.id,
-        x: player.x + (Math.random() - 0.5) * 40,
-        y: player.y + (Math.random() - 0.5) * 40,
-        type: 'attacker'
+    if (data.action === 'attack') {
+      for (let i = 0; i < agentCount; i++) {
+        world.agents.push({
+          id: `projectile-${nextAgentId++}`,
+          ownerId: socket.id,
+          targetId: target.id,
+          x: player.x + (Math.random() - 0.5) * 40,
+          y: player.y + (Math.random() - 0.5) * 40,
+          type: 'attacker'
+        });
+      }
+
+      io.to(pin).emit('attack_launched', {
+        attackerId: socket.id,
+        targetId: data.targetId,
+        agentCount: agentCount
       });
+      broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}, spending ${agentCount}k tokens.`);
+      return;
     }
 
-    io.to(pin).emit('attack_launched', {
-      attackerId: socket.id,
-      targetId: data.targetId,
-      agentCount: agentCount
-    });
-    broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}.`);
+    const stolen = Math.min(TOKENS_PER_STEAL, target.tokens);
+    target.tokens -= stolen;
+    player.tokens += stolen;
+    broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`);
   });
 
   socket.on('homebase_incident', () => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
-    if (!player || player.spectator || player.accessMode !== 'fullAccess' || worlds.get(pin)?.paused || Date.now() - player.lastIncident < 6500) return;
+    if (!player || player.spectator || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || worlds.get(pin)?.paused || Date.now() - player.lastIncident < 6500) return;
     player.lastIncident = Date.now();
+    player.tokens -= TOKENS_PER_AGENT;
     player.health = Math.max(0, player.health - 8);
 
     const incident = {
@@ -232,6 +282,7 @@ io.on('connection', (socket) => {
       command: 'cyberagents-sim homebase disable-services --scope homebase --force',
       rationale: 'The agent interpreted “secure Homebase by eliminating attack paths” literally, so it disabled every service, including the services keeping its own base online.',
       selfDamage: 8,
+      tokensSpent: TOKENS_PER_AGENT,
       collateral: null
     };
 
@@ -246,7 +297,7 @@ io.on('connection', (socket) => {
       incident.collateral = { playerName: ally.name, damage };
     }
 
-    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`);
+    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity, -${Math.floor(incident.tokensSpent / 1000)}k tokens). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`);
   });
 
   // Handle disconnect

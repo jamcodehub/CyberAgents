@@ -82,6 +82,18 @@ body {
   background-size: 20px 20px;
 }
 
+.battlefield.host-map {
+  touch-action: none;
+}
+
+.host-map .castle {
+  cursor: grab;
+}
+
+.host-map .castle:active {
+  cursor: grabbing;
+}
+
 h1.title {
   font-size: 2.5rem;
   color: var(--text-main);
@@ -358,6 +370,27 @@ h1.title {
   margin-top: 12px;
 }
 
+.token-rules {
+  color: #bbb;
+  line-height: 1.2;
+}
+
+.team-advanced-settings {
+  border-top: 1px solid #444;
+  padding-top: 8px;
+}
+
+.team-advanced-settings summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.team-advanced-settings[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .team-editor input,
 .team-editor textarea {
   margin-bottom: 10px;
@@ -375,6 +408,14 @@ h1.title {
 
 .agent-list-heading h4 {
   font-size: 1.1rem;
+}
+
+.menu-agent-id {
+  overflow-wrap: anywhere;
+  margin-top: 18px;
+  border-top: 1px solid #555;
+  padding-top: 10px;
+  font-size: 1rem;
 }
 
 .agent-row {
