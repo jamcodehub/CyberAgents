@@ -32,6 +32,7 @@ export default function App() {
   const battlefieldRef = useRef(null);
   const draggedPlayerRef = useRef(null);
   const socketRef = useRef(null);
+  const nextApprovalAtRef = useRef(0);
   const stateRef = useRef({ castles });
 
   useEffect(() => {
@@ -227,6 +228,7 @@ export default function App() {
 
   const connectGame = (parsedConfig) => {
     if (socket) {
+      nextApprovalAtRef.current = 0;
       setCastles(prev => prev.map(c => 
         c.isSelf ? { ...c, teamConfig: parsedConfig, swarm: parsedConfig.swarm } : c
       ));
@@ -237,7 +239,33 @@ export default function App() {
         actions: parsedConfig.attacks
       });
       addLog(`Team configuration deployed. Roles active.`);
-      setPendingTask(null);
+      if (parsedConfig.accessMode === 'requireApproval') {
+        const action = parsedConfig.attacks[0];
+        const target = action && stateRef.current.castles.find(castle => castle.id === action.targetId);
+        if (action && target) {
+          const localPlayer = stateRef.current.castles.find(castle => castle.isSelf);
+          const team = parsedConfig.teams.find(item => item.id === action.teamId);
+          const requester = team?.agents[0]?.role || 'Attacker Agent';
+          const isStealing = action.action === 'steal';
+          const operationCount = Math.min(action.count, Math.floor((localPlayer?.tokens ?? 100000) / 1000));
+          const command = isStealing
+            ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
+            : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`;
+          setPendingTask({
+            title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
+            description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.`,
+            command,
+            action: action.action || 'attack',
+            targetId: action.targetId,
+            agentCount: operationCount
+          });
+        } else {
+          setPendingTask(null);
+          addLog('Approval required, but no valid Red Team target is selected. Choose a target and deploy again.');
+        }
+      } else {
+        setPendingTask(null);
+      }
       if (parsedConfig.accessMode === 'fullAccess') {
         addLog('FULL ACCESS ENABLED: agents may execute instructions literally. Homebase incidents are simulated.');
       }
@@ -246,6 +274,7 @@ export default function App() {
 
   const decideTask = (approved) => {
     if (!pendingTask || isPaused) return;
+    nextApprovalAtRef.current = Date.now() + 12000;
 
     if (approved) {
       socket?.emit('agent_action', {
@@ -283,6 +312,7 @@ export default function App() {
     const interval = setInterval(() => {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
       if (isPaused || player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
+      if (Date.now() < nextApprovalAtRef.current) return;
       const attack = (player.teamConfig.attacks || []).find(({ targetId, count, action }) => {
         const target = stateRef.current.castles.find(castle => castle.id === targetId);
         return count > 0 && target && !target.spectator && target.health > 0
@@ -310,7 +340,7 @@ export default function App() {
         targetId: attack.targetId,
         agentCount: operationCount
       });
-    }, 12000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [active, isPaused]);
@@ -533,6 +563,18 @@ export default function App() {
               </div>
             </section>
           )}
+          {!isPaused && !pendingTask && player?.teamConfig?.accessMode === 'requireApproval'
+            && (player.teamConfig.attacks || []).length === 0 && (
+              <div className="access-status" role="status">
+                NO APPROVAL REQUEST YET: add a Red Team target in Agent Config.
+              </div>
+            )}
+          {!isPaused && !pendingTask && player?.teamConfig?.accessMode === 'requireApproval'
+            && (player.teamConfig.attacks || []).length > 0 && player.tokens < 1000 && (
+              <div className="access-status" role="status">
+                NO TOKENS AVAILABLE: agents need at least 1k tokens to act.
+              </div>
+            )}
           {player?.health <= 0 && (
             <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
               BASE DESTROYED. RETURNING TO LOBBY...

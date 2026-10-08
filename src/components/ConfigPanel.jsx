@@ -195,7 +195,7 @@ export default function ConfigPanel({ isOpen, connectGame, active, players = [],
                         <option value="attack">Send payload</option>
                         <option value="steal">Steal tokens</option>
                       </select>
-                      <label htmlFor="team-target">TARGET (OPTIONAL)</label>
+                      <label htmlFor="team-target">TARGET (REQUIRED FOR AGENT ACTIONS)</label>
                       <select
                         id="team-target"
                         value={players.some(p => p.id === selectedTeam.targetId) ? selectedTeam.targetId : ''}
