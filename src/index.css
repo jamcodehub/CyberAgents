@@ -82,8 +82,20 @@ body {
   background-size: 20px 20px;
 }
 
-.battlefield.host-map {
+.battlefield {
   touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.battlefield.panning {
+  cursor: grabbing;
+}
+
+.battlefield-world {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
 }
 
 .host-map .castle {
@@ -92,6 +104,25 @@ body {
 
 .host-map .castle:active {
   cursor: grabbing;
+}
+
+.recenter-map-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 11;
+  border: 1px solid #fff;
+  padding: 6px 10px;
+  background: #000;
+  color: #fff;
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.recenter-map-button:hover {
+  background: #fff;
+  color: #000;
 }
 
 h1.title {
@@ -661,6 +692,98 @@ h1.title {
   padding: 0;
   border: 2px solid #555;
   cursor: pointer;
+}
+
+.castle.enemy:not(.allied) .icon {
+  border-color: #777;
+  color: #aaa;
+}
+
+.castle.enemy:not(.allied) .name {
+  color: #aaa;
+}
+
+.castle.enemy:not(.allied) .health-fill {
+  background: #888;
+}
+
+.castle.self .icon {
+  border: 3px solid #fff;
+  color: #fff;
+  box-shadow: 0 0 14px #fff;
+  font-weight: bold;
+}
+
+.castle.self .name {
+  color: #fff;
+  font-weight: bold;
+}
+
+.castle.self .health-fill {
+  background: #fff;
+}
+
+.victory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.88);
+}
+
+.victory-card {
+  width: min(620px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 2px solid #fff;
+  padding: 24px;
+  background: #050505;
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.2);
+}
+
+.victory-card h2 {
+  margin-bottom: 12px;
+  font-size: 2rem;
+}
+
+.victory-heading {
+  margin-bottom: 16px;
+  color: #ffe14d;
+  font-size: 1.3rem;
+}
+
+.ladder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.ladder-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #444;
+  padding: 8px 4px;
+  color: #999;
+}
+
+.ladder-list li.ladder-winner {
+  border-color: #ffe14d;
+  color: #fff;
+}
+
+.ladder-rank {
+  flex: 0 0 36px;
+}
+
+.ladder-player {
+  flex: 1;
 }
 
 .swatch.selected {

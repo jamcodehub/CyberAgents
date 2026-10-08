@@ -10,6 +10,11 @@ import Lobby from './pages/Lobby';
 import './index.css';
 
 const formatTokens = (tokens = 0) => `${Math.floor(tokens / 1000).toLocaleString()}k`;
+const getTokenBalance = (player, previous) => (
+  Number.isFinite(player.tokens)
+    ? player.tokens
+    : previous?.tokens ?? (player.spectator || player.isHost ? 0 : 100000)
+);
 
 export default function App() {
   const [active, setActive] = useState(false);
@@ -26,11 +31,16 @@ export default function App() {
   const [lobbyError, setLobbyError] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [gameResult, setGameResult] = useState(null);
+  const [showGameResult, setShowGameResult] = useState(false);
+  const [cameraOffset, setCameraOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
   
   const [openPanel, setOpenPanel] = useState(null); // 'config', 'intel', 'logs', null
 
   const battlefieldRef = useRef(null);
   const draggedPlayerRef = useRef(null);
+  const panGestureRef = useRef(null);
   const socketRef = useRef(null);
   const nextApprovalAtRef = useRef(0);
   const stateRef = useRef({ castles });
@@ -52,6 +62,7 @@ export default function App() {
   };
 
   const joinGame = (gamePin, isHost = false) => {
+    setCameraOffset({ x: 0, y: 0 });
     setPin(gamePin);
     setIsHost(isHost);
     setLobbyError('');
@@ -71,6 +82,7 @@ export default function App() {
       setSocket(null);
       setPin(null);
       setActive(false);
+      setCameraOffset({ x: 0, y: 0 });
       setCastles([]);
       setAgents([]);
       setLogs([]);
@@ -79,6 +91,8 @@ export default function App() {
       setOpenPanel(null);
       setIsHost(false);
       setIsPaused(false);
+      setGameResult(null);
+      setShowGameResult(false);
       setLobbyError(message);
     };
 
@@ -119,13 +133,16 @@ export default function App() {
       const me = list.find(p => p.id === newSocket.id);
       if (me && !named) {
         named = true;
-        appendLog(`Assigned codename: ${me.name}`);
+        appendLog(me.spectator ? 'You are Host watchtower. Hosts cannot be targeted.' : `Assigned codename: ${me.name}`);
       }
       const previous = stateRef.current.castles;
       setCastles(list.map(p => {
         const prev = previous.find(c => c.id === p.id);
         return {
           ...p,
+          name: p.spectator || p.isHost ? 'Host watchtower' : p.name,
+          spectator: Boolean(p.spectator || p.isHost),
+          tokens: getTokenBalance(p, prev),
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null,
           alliance: p.alliance ?? null,
@@ -141,6 +158,9 @@ export default function App() {
         const prev = previous.find(c => c.id === p.id);
         return {
           ...p,
+          name: p.spectator || p.isHost ? 'Host watchtower' : p.name,
+          spectator: Boolean(p.spectator || p.isHost),
+          tokens: getTokenBalance(p, prev),
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null
         };
@@ -151,9 +171,22 @@ export default function App() {
 
     newSocket.on('activity_log', ({ msg }) => appendLog(msg));
     newSocket.on('game_paused', ({ paused }) => setIsPaused(paused));
+    newSocket.on('game_over', result => {
+      setGameResult(result);
+      setShowGameResult(true);
+      setIsPaused(true);
+      setPendingTask(null);
+    });
 
     newSocket.on('player_joined', (player) => {
-      setCastles(prev => [...prev.filter(c => c.id !== player.id), { ...player, isSelf: false }]);
+      const host = player.spectator || player.isHost;
+      setCastles(prev => [...prev.filter(c => c.id !== player.id), {
+        ...player,
+        name: host ? 'Host watchtower' : player.name,
+        spectator: Boolean(host),
+        tokens: getTokenBalance(player),
+        isSelf: false
+      }]);
     });
 
     newSocket.on('player_left', (playerId) => {
@@ -214,10 +247,13 @@ export default function App() {
     socketRef.current = null;
     setSocket(null);
     setActive(false);
+    setCameraOffset({ x: 0, y: 0 });
     setPin(null);
     setMyId(null);
     setIsHost(false);
     setIsPaused(false);
+    setGameResult(null);
+    setShowGameResult(false);
     setCastles([]);
     setAgents([]);
     setLogs([]);
@@ -384,13 +420,13 @@ export default function App() {
   // When your base is destroyed, return to the lobby so you can rejoin as a new agent
   const selfDestroyed = castles.some(c => c.isSelf && c.health <= 0);
   useEffect(() => {
-    if (!active || !selfDestroyed) return undefined;
+    if (!active || !selfDestroyed || gameResult) return undefined;
     const timer = setTimeout(() => {
       leaveGame();
       setLobbyError('Your base was destroyed. Join again as a new agent.');
     }, 3000);
     return () => clearTimeout(timer);
-  }, [active, selfDestroyed]);
+  }, [active, gameResult, selfDestroyed]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -428,26 +464,49 @@ export default function App() {
   const togglePause = () => socketRef.current?.emit('set_game_paused', { paused: !isPaused });
 
   const startMapDrag = (event) => {
-    if (!isHost || !battlefieldRef.current) return;
-    const castleElement = event.target.closest('[data-player-id]');
-    if (!castleElement) return;
+    if (!battlefieldRef.current || event.target.closest('button, .status-panel')) return;
+    const castleElement = isHost ? event.target.closest('[data-player-id]') : null;
     event.preventDefault();
-    draggedPlayerRef.current = castleElement.dataset.playerId;
+    if (castleElement) {
+      draggedPlayerRef.current = castleElement.dataset.playerId;
+    } else {
+      panGestureRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        cameraX: cameraOffset.x,
+        cameraY: cameraOffset.y
+      };
+      setIsPanning(true);
+    }
     battlefieldRef.current.setPointerCapture(event.pointerId);
-    updateMapDrag(event);
+    if (draggedPlayerRef.current) updateMapDrag(event);
   };
 
   const updateMapDrag = (event) => {
     const map = battlefieldRef.current;
-    if (!isHost || !draggedPlayerRef.current || !map) return;
+    if (!map) return;
+    if (isHost && draggedPlayerRef.current) {
+      const bounds = map.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const x = ((event.clientX - bounds.left - cameraOffset.x) / bounds.width) * 1000;
+      const y = ((event.clientY - bounds.top - cameraOffset.y) / bounds.height) * 700;
+      socketRef.current?.emit('move_player', {
+        playerId: draggedPlayerRef.current,
+        x: Math.min(1000, Math.max(0, x)),
+        y: Math.min(700, Math.max(0, y))
+      });
+      return;
+    }
+
+    const gesture = panGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
     const bounds = map.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    const x = ((event.clientX - bounds.left) / bounds.width) * 1000;
-    const y = ((event.clientY - bounds.top) / bounds.height) * 700;
-    socketRef.current?.emit('move_player', {
-      playerId: draggedPlayerRef.current,
-      x: Math.min(1000, Math.max(0, x)),
-      y: Math.min(700, Math.max(0, y))
+    const maxX = Math.min(300, bounds.width * 0.35);
+    const maxY = Math.min(210, bounds.height * 0.35);
+    setCameraOffset({
+      x: Math.min(maxX, Math.max(-maxX, gesture.cameraX + event.clientX - gesture.startX)),
+      y: Math.min(maxY, Math.max(-maxY, gesture.cameraY + event.clientY - gesture.startY))
     });
   };
 
@@ -456,6 +515,8 @@ export default function App() {
       battlefieldRef.current.releasePointerCapture(event.pointerId);
     }
     draggedPlayerRef.current = null;
+    panGestureRef.current = null;
+    setIsPanning(false);
   };
 
   return (
@@ -476,7 +537,7 @@ export default function App() {
           isOpen={openPanel === 'config'}
           connectGame={connectGame}
           active={active}
-          players={castles.filter(c => !c.isSelf && !c.spectator)}
+          players={castles.filter(c => !c.isSelf && !c.spectator && !c.isHost)}
           myAlliance={player?.alliance ?? null}
         />
       )}
@@ -495,13 +556,28 @@ export default function App() {
       {/* Battlefield (Background) */}
       <div
         ref={battlefieldRef}
-        className={`battlefield${isHost ? ' host-map' : ''}`}
-        style={{ flex: 1, position: 'relative', overflow: 'hidden', zIndex: 1 }}
+        className={`battlefield${isHost ? ' host-map' : ''}${isPanning ? ' panning' : ''}`}
+        style={{
+          flex: 1,
+          position: 'relative',
+          overflow: 'hidden',
+          zIndex: 1,
+          backgroundPosition: `${cameraOffset.x}px ${cameraOffset.y}px`
+        }}
         onPointerDown={startMapDrag}
         onPointerMove={updateMapDrag}
         onPointerUp={endMapDrag}
         onPointerCancel={endMapDrag}
       >
+        <button
+          type="button"
+          className="recenter-map-button"
+          onClick={() => setCameraOffset({ x: 0, y: 0 })}
+          aria-label="Recenter battlefield map"
+          title="Recenter map"
+        >
+          Recenter map
+        </button>
         <div className="status-panel">
           <h3>&gt; NETWORK_STATUS</h3>
           {isHost ? (
@@ -535,7 +611,7 @@ export default function App() {
           {!isHost && (
             <div className="status-item">
               <span>Tokens:</span>
-              <span>{formatTokens(player?.tokens)}</span>
+              <span>{player ? formatTokens(player.tokens) : 'SYNCING'}</span>
             </div>
           )}
           {!isHost && agentsHalted && (
@@ -582,45 +658,80 @@ export default function App() {
           )}
         </div>
 
-        {castles.map(castle => (
-          castle.health > 0 && (
-            <div
-              key={castle.id}
-              className={`castle ${castle.spectator ? 'host-watchtower' : castle.isSelf ? 'self' : 'enemy'} ${castle.color ? 'allied' : ''}`}
-              data-player-id={castle.id}
-              style={{ left: `${castle.x / 10}%`, top: `${castle.y / 7}%`, '--base-color': castle.color || undefined }}
-            >
-              <div className="icon">
-                {castle.spectator ? '[H]' : castle.isSelf ? '[*]' : '[-]'}
+        <div
+          className="battlefield-world"
+          style={{ transform: `translate3d(${cameraOffset.x}px, ${cameraOffset.y}px, 0)` }}
+        >
+          {castles.map(castle => (
+            castle.health > 0 && (
+              <div
+                key={castle.id}
+                className={`castle ${castle.spectator ? 'host-watchtower' : castle.isSelf ? 'self' : 'enemy'} ${castle.color ? 'allied' : ''}`}
+                data-player-id={castle.id}
+                style={{ left: `${castle.x / 10}%`, top: `${castle.y / 7}%`, '--base-color': castle.color || undefined }}
+              >
+                <div className="icon">
+                  {castle.spectator ? '[H]' : castle.isSelf ? '[*]' : '[-]'}
+                </div>
+                <div className="name">{castle.name}</div>
+                {!castle.spectator && <div className="health-bar">
+                  <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
+                </div>}
               </div>
-              <div className="name">{castle.name}</div>
-              {!castle.spectator && <div className="health-bar">
-                <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
-              </div>}
-            </div>
-          )
-        ))}
+            )
+          ))}
 
-        {castles.map(castle => (
-          castle.health > 0 && castle.swarm && (castle.swarm.red > 0 || castle.swarm.blue > 0) && (
-            <AgentSwarm
-              key={`swarm-${castle.id}`}
-              x={`${castle.x / 10}%`}
-              y={`${castle.y / 7}%`}
-              red={castle.swarm.red}
-              blue={castle.swarm.blue}
+          {castles.map(castle => (
+            castle.health > 0 && castle.swarm && (castle.swarm.red > 0 || castle.swarm.blue > 0) && (
+              <AgentSwarm
+                key={`swarm-${castle.id}`}
+                x={`${castle.x / 10}%`}
+                y={`${castle.y / 7}%`}
+                red={castle.swarm.red}
+                blue={castle.swarm.blue}
+              />
+            )
+          ))}
+
+          {agents.map(agent => (
+            <div
+              key={agent.id}
+              className={`agent ${agent.type}`}
+              style={{ left: `${agent.x / 10}%`, top: `${agent.y / 7}%` }}
             />
-          )
-        ))}
-
-        {agents.map(agent => (
-          <div
-            key={agent.id}
-            className={`agent ${agent.type}`}
-            style={{ left: `${agent.x / 10}%`, top: `${agent.y / 7}%` }}
-          />
-        ))}
+          ))}
+        </div>
       </div>
+
+      {gameResult && showGameResult && (
+        <div className="victory-overlay" role="dialog" aria-modal="true" aria-labelledby="ladder-title">
+          <section className="victory-card">
+            <p className="task-kicker">NETWORK COMPLETE</p>
+            <h2 id="ladder-title">LADDER RESULTS</h2>
+            {gameResult.winnerAlliance ? (
+              <p className="victory-heading">LAST ALLIANCE STANDING: {gameResult.winnerAlliance}</p>
+            ) : gameResult.winners.length > 0 ? (
+              <p className="victory-heading">
+                {gameResult.winners.includes(player?.id) ? 'VICTORY' : 'LAST AGENT STANDING'}: {gameResult.standings.find(item => gameResult.winners.includes(item.id))?.name}
+              </p>
+            ) : (
+              <p className="victory-heading">DRAW: NO AGENTS REMAINED</p>
+            )}
+            <ol className="ladder-list">
+              {gameResult.standings.map(entry => (
+                <li key={entry.id} className={gameResult.winners.includes(entry.id) ? 'ladder-winner' : ''}>
+                  <span className="ladder-rank">#{entry.rank}</span>
+                  <span className="ladder-player">
+                    {entry.name}{entry.alliance ? ` · ${entry.alliance}` : ''}
+                  </span>
+                  <span>{Math.floor(entry.health)}% · {formatTokens(entry.tokens)}</span>
+                </li>
+              ))}
+            </ol>
+            <button className="task-button" onClick={() => setShowGameResult(false)}>Continue watching</button>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

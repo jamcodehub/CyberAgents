@@ -53,6 +53,45 @@ function spawnPosition(room, isHost) {
   };
 }
 
+function finishGameIfWon(pin) {
+  const world = worlds.get(pin);
+  const players = games[pin];
+  if (!world || !players || world.gameOver || world.competitorCount < 2) return;
+
+  const competitors = Object.values(players).filter(player => !player.spectator);
+  const standing = competitors.filter(player => player.health > 0);
+  const standingSides = new Set(standing.map(player => player.alliance || `player:${player.id}`));
+  if (standingSides.size > 1) return;
+
+  world.gameOver = true;
+  world.paused = true;
+  const winnerAlliance = standing.length > 0 && standing[0].alliance
+    && standing.every(player => player.alliance === standing[0].alliance)
+    ? standing[0].alliance
+    : null;
+  const standings = [...competitors]
+    .sort((a, b) => b.health - a.health || b.tokens - a.tokens || a.name.localeCompare(b.name))
+    .map((player, index) => ({
+      rank: index + 1,
+      id: player.id,
+      name: player.name,
+      alliance: player.alliance,
+      health: player.health,
+      tokens: player.tokens
+    }));
+
+  io.to(pin).emit('game_over', {
+    winnerAlliance,
+    winners: standings.filter(player => player.health > 0).map(player => player.id),
+    standings
+  });
+  broadcastLog(pin, winnerAlliance
+    ? `Victory: alliance ${winnerAlliance} is the last alliance standing.`
+    : standing.length === 1
+      ? `Victory: ${standing[0].name} is the last agent standing.`
+      : 'Game over: no agents remain standing.');
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
@@ -81,7 +120,14 @@ io.on('connection', (socket) => {
 
     if (!games[pin]) {
       games[pin] = {};
-      worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false });
+      worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false, competitorCount: 0, gameOver: false });
+    }
+
+    const world = worlds.get(pin);
+    if (world.gameOver) {
+      socket.leave(pin);
+      socket.emit('join_error', { message: 'This game has ended. Start a new network to play again.' });
+      return;
     }
 
     const position = spawnPosition(games[pin], isHost);
@@ -102,6 +148,7 @@ io.on('connection', (socket) => {
       lastActionByTarget: {},
       lastIncident: 0
     };
+    if (!isHost) world.competitorCount += 1;
     
     // Send current game state to new player
     socket.emit('game_state', games[pin]);
@@ -128,7 +175,7 @@ io.on('connection', (socket) => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
     const world = pin && worlds.get(pin);
-    if (!player?.isHost || !world || typeof data?.paused !== 'boolean') return;
+    if (!player?.isHost || !world || world.gameOver || typeof data?.paused !== 'boolean') return;
     if (world.paused === data.paused) return;
     world.paused = data.paused;
     io.to(pin).emit('game_paused', { paused: world.paused });
@@ -153,7 +200,7 @@ io.on('connection', (socket) => {
     const player = games[pin][socket.id];
     if (!player) return;
 
-    if (player.spectator) return;
+    if (player.spectator || player.isHost) return;
 
     const alliance = typeof data?.alliance === 'string'
       ? data.alliance.trim().substring(0, 20) || null
@@ -197,7 +244,7 @@ io.on('connection', (socket) => {
     if (!pin || !games[pin]) return;
 
     const player = games[pin][socket.id];
-    if (!player || player.spectator || !player.alliance) return;
+    if (!player || player.spectator || player.isHost || !player.alliance) return;
     if (!HEX_COLOR.test(data?.color)) return;
 
     Object.values(games[pin]).forEach(p => {
@@ -213,12 +260,12 @@ io.on('connection', (socket) => {
     if (!pin || !games[pin]) return;
 
     const player = games[pin][socket.id];
-    if (!player || player.spectator) return;
-    if (worlds.get(pin)?.paused) return;
+    if (!player || player.spectator || player.isHost) return;
+    if (worlds.get(pin)?.paused || worlds.get(pin)?.gameOver) return;
     if (data?.action !== 'attack' && data?.action !== 'steal') return;
 
     const target = games[pin][data.targetId];
-    if (!target || target.id === player.id || target.spectator) return;
+    if (!target || target.id === player.id || target.spectator || target.isHost) return;
     if (player.alliance && player.alliance === target.alliance) return;
     if (data.action === 'steal' && target.tokens <= 0) return;
     const configuredCount = player.actions
@@ -271,7 +318,7 @@ io.on('connection', (socket) => {
   socket.on('homebase_incident', () => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
-    if (!player || player.spectator || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || worlds.get(pin)?.paused || Date.now() - player.lastIncident < 6500) return;
+    if (!player || player.spectator || player.isHost || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver || Date.now() - player.lastIncident < 6500) return;
     player.lastIncident = Date.now();
     player.tokens -= TOKENS_PER_AGENT;
     player.health = Math.max(0, player.health - 8);
@@ -319,6 +366,8 @@ io.on('connection', (socket) => {
         return;
       }
 
+      finishGameIfWon(pin);
+
       // Cleanup empty games
       if (Object.keys(games[pin]).length === 0) {
         delete games[pin];
@@ -336,6 +385,10 @@ setInterval(() => {
 
     const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
     world.lastUpdate = now;
+    if (world.gameOver) {
+      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true });
+      return;
+    }
     if (world.paused) {
       io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true });
       return;
@@ -345,7 +398,7 @@ setInterval(() => {
     world.agents = world.agents.filter(agent => {
       const target = players[agent.targetId];
       const owner = players[agent.ownerId];
-      if (!target || target.spectator || target.health <= 0) return false;
+      if (!target || target.spectator || target.isHost || target.health <= 0) return false;
       if (!owner || (owner.alliance && owner.alliance === target.alliance)) return false;
 
       const dx = target.x - agent.x;
@@ -366,7 +419,8 @@ setInterval(() => {
       players[playerId].health = Math.max(0, players[playerId].health - damage);
     });
 
-    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: false });
+    finishGameIfWon(pin);
+    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: world.paused });
   });
 }, 50);
 
