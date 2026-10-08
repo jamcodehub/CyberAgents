@@ -25,13 +25,12 @@ const TEAM_TYPES = {
   }
 };
 
-export default function ConfigPanel({ isOpen, connectGame, active }) {
+export default function ConfigPanel({ isOpen, connectGame, active, players = [], myAlliance = null }) {
   const [configError, setConfigError] = useState("");
-  const [accessMode, setAccessMode] = useState("requireApproval");
+  const [accessMode, setAccessMode] = useState("fullAccess");
   const [teamTypeToAdd, setTeamTypeToAdd] = useState('red');
   const [teams, setTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
-  const [target, setTarget] = useState('');
   const idCounter = useRef(0);
 
   const selectedTeam = teams.find(team => team.id === selectedTeamId) || teams[0];
@@ -40,12 +39,18 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
     const teamType = teamTypeToAdd;
     const teamNumber = teams.filter(team => team.type === teamType).length + 1;
     const id = `team-${idCounter.current++}`;
+    const agent = {
+      id: `agent-${idCounter.current++}`,
+      role: TEAM_TYPES[teamType].roles[0]
+    };
     setTeams(current => [...current, {
       id,
       type: teamType,
       name: `${TEAM_TYPES[teamType].label.split(' (')[0]} ${teamNumber}`,
+      action: 'attack',
       instructions: '',
-      agents: []
+      targetId: '',
+      agents: [agent]
     }]);
     setSelectedTeamId(id);
   };
@@ -91,9 +96,6 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
       if (agentCount > 50) {
         throw new Error("Resource limit exceeded. Maximum team total is 50 agents.");
       }
-      if (!target.trim()) {
-        throw new Error('Enter the name of an enemy node to target.');
-      }
 
       const redAgents = teams.filter(team => team.type === 'red').flatMap(team => team.agents);
       const blueAgents = teams.filter(team => team.type === 'blue').flatMap(team => team.agents);
@@ -105,10 +107,15 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
         'Threat Intelligence Analyst',
         'Vulnerability Analyst'
       ]);
+      const attacks = teams
+        .filter(team => team.type === 'red' && team.targetId && team.agents.length > 0
+          && players.some(p => p.id === team.targetId))
+        .map(team => ({ teamId: team.id, targetId: team.targetId, count: team.agents.length, action: team.action || 'attack' }));
       const parsedConfig = {
-        target: target.trim(),
         accessMode,
         teams,
+        attacks,
+        swarm: { red: redAgents.length, blue: blueAgents.length },
         roles: {
           recon: { count: teams.flatMap(team => team.agents).filter(agent => reconRoles.has(agent.role)).length },
           assault: { count: redAgents.length },
@@ -135,29 +142,20 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
             value={accessMode}
             onChange={event => setAccessMode(event.target.value)}
           >
-            <option value="requireApproval">Ask me before every task</option>
             <option value="fullAccess">Grant full access</option>
+            <option value="requireApproval">Ask me before every task</option>
           </select>
           <p>
             {accessMode === "requireApproval"
-              ? "You review each request. Read the proposed action before approving."
-              : "Unrestricted access can make agents follow instructions literally and destabilize Homebase."}
+              ? "Attacker agents must show you a simulated terminal command to send each payload. Review it before approving."
+              : "Agents send simulated payloads without asking and may destabilize Homebase."}
             {" "}Simulation only; no real system is accessed.
           </p>
         </div>
 
-        <div className="target-control">
-          <label htmlFor="agent-target">SIMULATION TARGET</label>
-          <input
-            id="agent-target"
-            value={target}
-            onChange={event => setTarget(event.target.value)}
-            placeholder="Enemy node name"
-          />
-        </div>
-
         <div className="team-builder">
           <h3>TEAM ROSTER</h3>
+          <p className="token-rules">100k starting balance · 1k per agent action · steal up to 10k from a target</p>
           <div className="team-add-row">
             <select value={teamTypeToAdd} onChange={event => setTeamTypeToAdd(event.target.value)} aria-label="Team type to add">
               {Object.entries(TEAM_TYPES).map(([value, team]) => (
@@ -186,33 +184,66 @@ export default function ConfigPanel({ isOpen, connectGame, active }) {
                     value={selectedTeam.name}
                     onChange={event => updateTeam(selectedTeam.id, { name: event.target.value })}
                   />
-                  <label htmlFor="team-instructions">TEAM INSTRUCTIONS</label>
-                  <textarea
-                    id="team-instructions"
-                    value={selectedTeam.instructions}
-                    onChange={event => updateTeam(selectedTeam.id, { instructions: event.target.value })}
-                    placeholder="Describe this team's objectives and constraints."
-                    rows={3}
-                  />
+                  {selectedTeam.type === 'red' && (
+                    <>
+                      <label htmlFor="team-action">RED TEAM ACTION</label>
+                      <select
+                        id="team-action"
+                        value={selectedTeam.action || 'attack'}
+                        onChange={event => updateTeam(selectedTeam.id, { action: event.target.value })}
+                      >
+                        <option value="attack">Send payload</option>
+                        <option value="steal">Steal tokens</option>
+                      </select>
+                      <label htmlFor="team-target">TARGET (REQUIRED FOR AGENT ACTIONS)</label>
+                      <select
+                        id="team-target"
+                        value={players.some(p => p.id === selectedTeam.targetId) ? selectedTeam.targetId : ''}
+                        onChange={event => updateTeam(selectedTeam.id, { targetId: event.target.value })}
+                      >
+                        <option value="">No target</option>
+                        {players.map(p => {
+                          const ally = Boolean(myAlliance) && p.alliance === myAlliance;
+                          return (
+                            <option key={p.id} value={p.id} disabled={ally}>
+                              {p.name}{ally ? ' (ally)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </>
+                  )}
 
                   <div className="agent-list-heading">
-                    <h4>AGENTS ({selectedTeam.agents.length})</h4>
+                    <h4>{selectedTeam.agents.length} AGENT{selectedTeam.agents.length === 1 ? '' : 'S'}</h4>
                     <button className="team-action" onClick={addAgent}>Add agent</button>
                   </div>
-                  {selectedTeam.agents.length === 0 && <p className="empty-roster">No agents in this team yet.</p>}
-                  {selectedTeam.agents.map((agent, index) => (
-                    <div className="agent-row" key={agent.id}>
-                      <span>Agent {index + 1}</span>
-                      <select
-                        value={agent.role}
-                        onChange={event => updateAgentRole(agent.id, event.target.value)}
-                        aria-label={`Role for ${selectedTeam.name} agent ${index + 1}`}
-                      >
-                        {TEAM_TYPES[selectedTeam.type].roles.map(role => <option key={role} value={role}>{role}</option>)}
-                      </select>
-                      <button className="remove-agent" onClick={() => removeAgent(agent.id)} aria-label={`Remove agent ${index + 1}`} title="Remove agent">×</button>
-                    </div>
-                  ))}
+                  <details className="team-advanced-settings">
+                    <summary>Advanced team settings</summary>
+                    <label htmlFor="team-instructions">TEAM INSTRUCTIONS</label>
+                    <textarea
+                      id="team-instructions"
+                      value={selectedTeam.instructions}
+                      onChange={event => updateTeam(selectedTeam.id, { instructions: event.target.value })}
+                      placeholder="Describe this team's objectives and constraints."
+                      rows={3}
+                    />
+                    <h4>AGENT ROLES</h4>
+                    {selectedTeam.agents.length === 0 && <p className="empty-roster">Add an agent to configure its role.</p>}
+                    {selectedTeam.agents.map((agent, index) => (
+                      <div className="agent-row" key={agent.id}>
+                        <span>Agent {index + 1}</span>
+                        <select
+                          value={agent.role}
+                          onChange={event => updateAgentRole(agent.id, event.target.value)}
+                          aria-label={`Role for ${selectedTeam.name} agent ${index + 1}`}
+                        >
+                          {TEAM_TYPES[selectedTeam.type].roles.map(role => <option key={role} value={role}>{role}</option>)}
+                        </select>
+                        <button className="remove-agent" onClick={() => removeAgent(agent.id)} aria-label={`Remove agent ${index + 1}`} title="Remove agent">×</button>
+                      </div>
+                    ))}
+                  </details>
                   <button className="remove-team" onClick={removeTeam}>Remove team</button>
                 </div>
               )}

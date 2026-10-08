@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 
+const formatHealthPercent = (health = 0) => `${Math.floor(health / 10)}%`;
+
 const INITIAL_ATTACK_CONFIG = `{
   "target": "null", // Fix me! Set to an enemy name
   "agentCount": 0, // Max 50
@@ -84,7 +86,7 @@ export default function Battlefield({ castles, agents, active, connectGame, myId
           <h3>&gt; NETWORK_STATUS</h3>
           <div className="status-item">
             <span>Your Castle Integrity:</span>
-            <span>{Math.floor(player?.health || 0)}%</span>
+            <span>{formatHealthPercent(player?.health)}</span>
           </div>
           <div className="status-item">
             <span>Active Enemy Nodes:</span>
@@ -92,7 +94,7 @@ export default function Battlefield({ castles, agents, active, connectGame, myId
           </div>
           <div className="status-item">
             <span>Agents In Transit:</span>
-            <span>{agents.length}</span>
+            <span>{agents.reduce((total, agent) => total + (agent.count || 1), 0)}</span>
           </div>
           {player?.health <= 0 && (
             <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
@@ -113,7 +115,7 @@ export default function Battlefield({ castles, agents, active, connectGame, myId
               </div>
               <div className="name">{castle.name}</div>
               <div className="health-bar">
-                <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
+                <div className="health-fill" style={{ width: `${Math.min(100, castle.health / 10)}%` }}></div>
               </div>
             </div>
           )

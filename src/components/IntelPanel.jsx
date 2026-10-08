@@ -1,6 +1,8 @@
 import React from 'react';
 
-export default function IntelPanel({ isOpen, castles }) {
+const formatHealthPercent = (health = 0) => `${Math.floor(health / 10)}%`;
+
+export default function IntelPanel({ isOpen, castles, spectator = false }) {
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>
       <h2 style={{ borderBottom: '2px solid #fff', paddingBottom: '10px', marginBottom: '20px', textTransform: 'uppercase' }}>
@@ -13,12 +15,19 @@ export default function IntelPanel({ isOpen, castles }) {
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>STATUS</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>NODE NAME</th>
             <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>INTEGRITY</th>
-            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>AFFILIATION</th>
+            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>TOKENS</th>
+            <th style={{ borderBottom: '1px solid #fff', padding: '10px' }}>{spectator ? 'ALLIANCE' : 'AFFILIATION'}</th>
           </tr>
         </thead>
         <tbody>
           {castles.map(c => (
-            <tr key={c.id} style={{ opacity: c.health > 0 ? 1 : 0.5 }}>
+            <tr
+              key={c.id}
+              style={{
+                opacity: c.health > 0 ? 1 : 0.5,
+                color: c.spectator ? '#777' : c.alliance && c.color ? c.color : undefined
+              }}
+            >
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
                 {c.health > 0 ? '[ ONLINE ]' : '[ OFFLINE ]'}
               </td>
@@ -26,16 +35,19 @@ export default function IntelPanel({ isOpen, castles }) {
                 {c.name}
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
-                {Math.floor(c.health)}%
+                {formatHealthPercent(c.health)}
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
-                {c.isSelf ? 'FRIENDLY' : 'HOSTILE'}
+                {c.spectator ? '—' : `${Math.floor((c.tokens ?? 0) / 1000).toLocaleString()}k`}
+              </td>
+              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+                {spectator ? (c.alliance || '-') : (c.isSelf ? 'FRIENDLY' : 'HOSTILE')}
               </td>
             </tr>
           ))}
           {castles.length === 0 && (
             <tr>
-              <td colSpan="4" style={{ padding: '20px', textAlign: 'center' }}>NO DATA AVAILABLE. CONNECT TO NETWORK.</td>
+              <td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>NO DATA AVAILABLE. CONNECT TO NETWORK.</td>
             </tr>
           )}
         </tbody>
