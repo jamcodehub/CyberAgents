@@ -7,6 +7,7 @@ import LogPanel from './components/LogPanel';
 import AlliancePanel, { ALLIANCE_COLORS } from './components/AlliancePanel';
 import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
+import WaitingLobby from './pages/WaitingLobby';
 import './index.css';
 
 const formatTokens = (tokens = 0) => `${Math.floor(tokens / 1000).toLocaleString()}k`;
@@ -30,6 +31,8 @@ export default function App() {
   const [pendingTask, setPendingTask] = useState(null);
   const [lobbyError, setLobbyError] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [lobbyStartError, setLobbyStartError] = useState('');
   const [isPaused, setIsPaused] = useState(false);
   const [gameResult, setGameResult] = useState(null);
   const [showGameResult, setShowGameResult] = useState(false);
@@ -65,6 +68,8 @@ export default function App() {
     setCameraOffset({ x: 0, y: 0 });
     setPin(gamePin);
     setIsHost(isHost);
+    setGameStarted(false);
+    setLobbyStartError('');
     setLobbyError('');
 
     if (socket) socket.disconnect();
@@ -90,6 +95,7 @@ export default function App() {
       setPendingTask(null);
       setOpenPanel(null);
       setIsHost(false);
+      setGameStarted(false);
       setIsPaused(false);
       setGameResult(null);
       setShowGameResult(false);
@@ -156,7 +162,7 @@ export default function App() {
       }));
     });
 
-    newSocket.on('world_state', ({ players, agents: worldAgents, paused }) => {
+    newSocket.on('world_state', ({ players, agents: worldAgents, paused, started }) => {
       const previous = stateRef.current.castles;
       setCastles(players.map(p => {
         const prev = previous.find(c => c.id === p.id);
@@ -173,6 +179,33 @@ export default function App() {
       }));
       setAgents(worldAgents);
       setIsPaused(paused);
+      if (started) setGameStarted(true);
+    });
+
+    newSocket.on('lobby_state', ({ players }) => {
+      if (!Array.isArray(players)) return;
+      const previous = stateRef.current.castles;
+      setCastles(players.map(p => {
+        const prev = previous.find(c => c.id === p.id);
+        const host = p.spectator || p.isHost || (isHost && p.id === newSocket.id);
+        return {
+          ...p,
+          name: host ? 'Host watchtower' : p.name,
+          isHost: Boolean(host),
+          spectator: Boolean(host),
+          tokens: host ? 0 : getTokenBalance(p, prev),
+          isSelf: p.id === newSocket.id,
+          teamConfig: prev?.teamConfig ?? null,
+          alliance: p.alliance ?? null,
+          color: p.color ?? null,
+          swarm: p.swarm ?? null
+        };
+      }));
+    });
+    newSocket.on('game_started', () => {
+      setGameStarted(true);
+      setIsPaused(false);
+      setLobbyStartError('');
     });
 
     newSocket.on('activity_log', ({ msg }) => appendLog(msg));
@@ -216,10 +249,14 @@ export default function App() {
   };
 
   // Shares alliance + agent-swarm info with the other players (needs the server relay).
-  const broadcastSelf = (overrides = {}) => {
-    if (!socket) return;
+  const broadcastSelf = (overrides = {}, acknowledge) => {
+    const activeSocket = socketRef.current;
+    if (!activeSocket?.connected) {
+      acknowledge?.({ accepted: false, reason: 'Not connected to the game server.' });
+      return;
+    }
     const me = stateRef.current.castles.find(c => c.isSelf);
-    socket.emit('player_update', {
+    activeSocket.emit('player_update', {
       alliance: me?.alliance ?? null,
       swarm: me?.swarm ?? null,
       color: me?.color ?? null,
@@ -227,7 +264,7 @@ export default function App() {
       accessMode: me?.teamConfig?.accessMode ?? me?.accessMode ?? null,
       actions: me?.teamConfig?.attacks ?? [],
       ...overrides
-    });
+    }, acknowledge);
   };
 
   const setMyAlliance = (alliance, pickedColor) => {
@@ -258,6 +295,8 @@ export default function App() {
     setPin(null);
     setMyId(null);
     setIsHost(false);
+    setGameStarted(false);
+    setLobbyStartError('');
     setIsPaused(false);
     setGameResult(null);
     setShowGameResult(false);
@@ -270,49 +309,90 @@ export default function App() {
   };
 
   const connectGame = (parsedConfig) => {
-    if (socket) {
+    if (socketRef.current?.connected) {
       nextApprovalAtRef.current = 0;
       setCastles(prev => prev.map(c => 
         c.isSelf ? { ...c, teamConfig: parsedConfig, swarm: parsedConfig.swarm } : c
       ));
+      let deploymentAcknowledged = false;
+      const deploymentTimer = setTimeout(() => {
+        if (deploymentAcknowledged) return;
+        setPendingTask(null);
+        addLog('No server confirmation received for team deployment. Deploy the latest backend to Render, reconnect, and try again.');
+      }, 4000);
       broadcastSelf({
         swarm: parsedConfig.swarm,
         firewall: parsedConfig.roles?.defense?.firewall ?? false,
         accessMode: parsedConfig.accessMode,
         actions: parsedConfig.attacks
-      });
-      addLog(`Team configuration deployed. Roles active.`);
-      if (parsedConfig.accessMode === 'requireApproval') {
-        const action = parsedConfig.attacks[0];
-        const target = action && stateRef.current.castles.find(castle => castle.id === action.targetId);
-        if (action && target) {
-          const localPlayer = stateRef.current.castles.find(castle => castle.isSelf);
-          const team = parsedConfig.teams.find(item => item.id === action.teamId);
-          const requester = team?.agents[0]?.role || 'Attacker Agent';
-          const isStealing = action.action === 'steal';
-          const operationCount = Math.min(action.count, Math.floor((localPlayer?.tokens ?? 100000) / 1000));
-          const command = isStealing
-            ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
-            : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`;
-          setPendingTask({
-            title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
-            description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.`,
-            command,
-            action: action.action || 'attack',
-            targetId: action.targetId,
-            agentCount: operationCount
-          });
+      }, result => {
+        deploymentAcknowledged = true;
+        clearTimeout(deploymentTimer);
+        if (!result?.accepted) {
+          setPendingTask(null);
+          addLog(`The server did not deploy this team: ${result?.reason || 'no confirmation received'}`);
+          return;
+        }
+
+        addLog(`Team configuration deployed and confirmed by the server (${result.actionCount} target action${result.actionCount === 1 ? '' : 's'} active).`);
+        if (parsedConfig.accessMode === 'requireApproval') {
+          const action = parsedConfig.attacks[0];
+          const target = action && stateRef.current.castles.find(castle => castle.id === action.targetId);
+          const deployedAction = action && result.actions?.find(item =>
+            item.action === action.action && item.targetId === action.targetId
+          );
+          if (action && target && deployedAction) {
+            const localPlayer = stateRef.current.castles.find(castle => castle.isSelf);
+            const team = parsedConfig.teams.find(item => item.id === action.teamId);
+            const requester = team?.agents[0]?.role || 'Attacker Agent';
+            const isStealing = action.action === 'steal';
+            const operationCount = Math.min(deployedAction.count, Math.floor((localPlayer?.tokens ?? 0) / 1000));
+            if (operationCount <= 0) {
+              setPendingTask(null);
+              addLog('Team deployed, but the action cannot run because no tokens are available.');
+              return;
+            }
+            const command = isStealing
+              ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
+              : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`;
+            setPendingTask({
+              title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
+              description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.`,
+              command,
+              action: action.action || 'attack',
+              targetId: action.targetId,
+              agentCount: operationCount
+            });
+          } else {
+            setPendingTask(null);
+            addLog('Team deployed, but the server confirmed no valid Red Team target action. Select an available target and redeploy.');
+          }
         } else {
           setPendingTask(null);
-          addLog('Approval required, but no valid Red Team target is selected. Choose a target and deploy again.');
+          addLog('FULL ACCESS ENABLED: agents may execute instructions literally. Homebase incidents are simulated.');
         }
-      } else {
-        setPendingTask(null);
-      }
-      if (parsedConfig.accessMode === 'fullAccess') {
-        addLog('FULL ACCESS ENABLED: agents may execute instructions literally. Homebase incidents are simulated.');
-      }
+      });
+    } else {
+      setPendingTask(null);
+      addLog('Team deployment failed: you are not connected to the game server. Rejoin and try again.');
     }
+  };
+
+  const startGame = () => {
+    setLobbyStartError('');
+    let acknowledged = false;
+    const timer = setTimeout(() => {
+      if (!acknowledged) {
+        setLobbyStartError('No response from the game server. Deploy the latest backend to Render and reconnect.');
+      }
+    }, 4000);
+    socketRef.current?.emit('start_game', result => {
+      acknowledged = true;
+      clearTimeout(timer);
+      if (!result?.accepted) {
+        setLobbyStartError(result?.reason || 'The server did not start the game.');
+      }
+    });
   };
 
   const decideTask = (approved) => {
@@ -475,6 +555,19 @@ export default function App() {
 
   if (!active) {
     return <Lobby joinGame={joinGame} lobbyError={lobbyError} />;
+  }
+
+  if (!gameStarted) {
+    return (
+      <WaitingLobby
+        pin={pin}
+        players={castles}
+        isHost={isHost}
+        error={lobbyStartError}
+        onStart={startGame}
+        onLeave={leaveGame}
+      />
+    );
   }
 
   const togglePanel = (panelName) => {

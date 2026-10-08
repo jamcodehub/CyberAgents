@@ -32,11 +32,19 @@ const TOKENS_PER_AGENT = 1000;
 const TOKENS_PER_STEAL = 10000;
 
 function assignAgentName(room) {
-  const taken = new Set(Object.values(room || {}).map(p => p.name));
+  const taken = new Set(Object.values(room || {}).filter(p => !p.isHost && !p.spectator).map(p => p.name));
   const free = AGENT_NAMES.filter(n => !taken.has(n));
   if (free.length > 0) return free[Math.floor(Math.random() * free.length)];
   // Fallback if all 30 are in use
   return `Agent-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function isCompetitor(player) {
+  return Boolean(player && !player.isHost && !player.spectator);
+}
+
+function isTargetable(player) {
+  return Boolean(isCompetitor(player) && player.health > 0);
 }
 
 function broadcastLog(pin, msg) {
@@ -45,7 +53,7 @@ function broadcastLog(pin, msg) {
 
 function spawnPosition(room, isHost) {
   if (isHost) return { x: 500, y: 350 };
-  const playerCount = Object.values(room).filter(player => !player.spectator).length;
+  const playerCount = Object.values(room).filter(isCompetitor).length;
   const angle = playerCount * 2.399963229728653;
   return {
     x: 500 + Math.cos(angle) * 260,
@@ -56,9 +64,9 @@ function spawnPosition(room, isHost) {
 function finishGameIfWon(pin) {
   const world = worlds.get(pin);
   const players = games[pin];
-  if (!world || !players || world.gameOver || world.competitorCount < 2) return;
+  if (!world || !players || !world.started || world.gameOver || world.competitorCount < 2) return;
 
-  const competitors = Object.values(players).filter(player => !player.spectator);
+  const competitors = Object.values(players).filter(isCompetitor);
   const standing = competitors.filter(player => player.health > 0);
   const standingSides = new Set(standing.map(player => player.alliance || `player:${player.id}`));
   if (standingSides.size > 1) return;
@@ -107,7 +115,7 @@ io.on('connection', (socket) => {
       socket.emit('join_error', { message: 'That pin is already in use. Try again.' });
       return;
     }
-    const roomHasHost = games[pin] && Object.values(games[pin]).some(p => p.isHost);
+    const roomHasHost = games[pin] && Object.values(games[pin]).some(p => p.isHost && p.spectator);
 
     // Joiners need an existing lobby that still has a host
     if (!isHost && !roomHasHost) {
@@ -115,20 +123,23 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.join(pin);
-    socket.pin = pin; // Store pin on socket for disconnect logic
-
     if (!games[pin]) {
       games[pin] = {};
-      worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false, competitorCount: 0, gameOver: false });
+      worlds.set(pin, { agents: [], lastUpdate: Date.now(), paused: false, started: false, competitorCount: 0, gameOver: false });
     }
 
     const world = worlds.get(pin);
     if (world.gameOver) {
-      socket.leave(pin);
       socket.emit('join_error', { message: 'This game has ended. Start a new network to play again.' });
       return;
     }
+    if (!isHost && world.started) {
+      socket.emit('join_error', { message: 'This game has already started. Join a new network.' });
+      return;
+    }
+
+    socket.join(pin);
+    socket.pin = pin; // Store pin on socket for disconnect logic
 
     const position = spawnPosition(games[pin], isHost);
     games[pin][socket.id] = {
@@ -155,11 +166,44 @@ io.on('connection', (socket) => {
     socket.emit('world_state', {
       players: Object.values(games[pin]),
       agents: worlds.get(pin).agents,
-      paused: worlds.get(pin).paused
+      paused: worlds.get(pin).paused,
+      started: worlds.get(pin).started
+    });
+    io.to(pin).emit('lobby_state', {
+      players: Object.values(games[pin]),
+      started: worlds.get(pin).started
     });
     // Broadcast new player to others in the room
     socket.to(pin).emit('player_joined', games[pin][socket.id]);
     broadcastLog(pin, `${games[pin][socket.id].name} joined the game.`);
+  });
+
+  socket.on('start_game', (acknowledge) => {
+    const respond = (result) => {
+      if (typeof acknowledge === 'function') acknowledge(result);
+    };
+    const pin = socket.pin;
+    const player = pin && games[pin] && games[pin][socket.id];
+    const world = pin && worlds.get(pin);
+    if (!player?.isHost || !world) {
+      respond({ accepted: false, reason: 'Only the host can start this game.' });
+      return;
+    }
+    if (world.gameOver) {
+      respond({ accepted: false, reason: 'This game has already ended.' });
+      return;
+    }
+    if (world.started) {
+      respond({ accepted: false, reason: 'The game has already started.' });
+      return;
+    }
+
+    world.started = true;
+    world.lastUpdate = Date.now();
+    io.to(pin).emit('game_started');
+    io.to(pin).emit('lobby_state', { players: Object.values(games[pin]), started: true });
+    broadcastLog(pin, `${player.name} started the game.`);
+    respond({ accepted: true });
   });
 
   socket.on('activity_log', (data) => {
@@ -175,7 +219,7 @@ io.on('connection', (socket) => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
     const world = pin && worlds.get(pin);
-    if (!player?.isHost || !world || world.gameOver || typeof data?.paused !== 'boolean') return;
+    if (!player?.isHost || !world || !world.started || world.gameOver || typeof data?.paused !== 'boolean') return;
     if (world.paused === data.paused) return;
     world.paused = data.paused;
     io.to(pin).emit('game_paused', { paused: world.paused });
@@ -193,14 +237,30 @@ io.on('connection', (socket) => {
   });
 
   // Share alliance + agent swarm info with the rest of the room
-  socket.on('player_update', (data) => {
+  socket.on('player_update', (data, acknowledge) => {
+    const respond = (result) => {
+      if (typeof acknowledge === 'function') acknowledge(result);
+    };
     const pin = socket.pin;
-    if (!pin || !games[pin]) return;
+    if (!pin || !games[pin]) {
+      respond({ accepted: false, reason: 'You are no longer connected to this game.' });
+      return;
+    }
 
     const player = games[pin][socket.id];
-    if (!player) return;
+    if (!player) {
+      respond({ accepted: false, reason: 'Your player is not registered in this game.' });
+      return;
+    }
 
-    if (player.spectator || player.isHost) return;
+    if (!isTargetable(player)) {
+      respond({ accepted: false, reason: 'Host and spectator accounts cannot deploy agents.' });
+      return;
+    }
+    if (!worlds.get(pin)?.started) {
+      respond({ accepted: false, reason: 'Wait for the host to start the game before deploying agents.' });
+      return;
+    }
 
     const alliance = typeof data?.alliance === 'string'
       ? data.alliance.trim().substring(0, 20) || null
@@ -217,6 +277,8 @@ io.on('connection', (socket) => {
       ? data.actions.slice(0, 50).flatMap(action => {
         if (action?.action !== 'attack' && action?.action !== 'steal') return [];
         if (typeof action.targetId !== 'string') return [];
+        const target = games[pin][action.targetId];
+        if (!isTargetable(target) || target.id === player.id || (alliance && alliance === target.alliance)) return [];
         const count = Math.min(Math.max(parseInt(action.count, 10) || 0, 0), 50);
         return count > 0 ? [{ action: action.action, targetId: action.targetId, count }] : [];
       })
@@ -236,6 +298,11 @@ io.on('connection', (socket) => {
     player.accessMode = accessMode;
     player.actions = actions;
     io.to(pin).emit('player_updated', { id: socket.id, alliance, swarm, color, firewall, accessMode });
+    respond({
+      accepted: true,
+      actionCount: actions.length,
+      actions: actions.map(({ action, targetId, count }) => ({ action, targetId, count }))
+    });
   });
 
   // Change the color of the whole alliance
@@ -244,7 +311,7 @@ io.on('connection', (socket) => {
     if (!pin || !games[pin]) return;
 
     const player = games[pin][socket.id];
-    if (!player || player.spectator || player.isHost || !player.alliance) return;
+    if (!isTargetable(player) || !player.alliance || !worlds.get(pin)?.started) return;
     if (!HEX_COLOR.test(data?.color)) return;
 
     Object.values(games[pin]).forEach(p => {
@@ -266,8 +333,12 @@ io.on('connection', (socket) => {
     }
 
     const player = games[pin][socket.id];
-    if (!player || player.spectator || player.isHost) {
+    if (!isTargetable(player)) {
       respond({ accepted: false, reason: 'Host and spectator accounts cannot deploy agents.' });
+      return;
+    }
+    if (!worlds.get(pin)?.started) {
+      respond({ accepted: false, reason: 'Wait for the host to start the game before deploying agents.' });
       return;
     }
     if (worlds.get(pin)?.paused || worlds.get(pin)?.gameOver) {
@@ -280,7 +351,7 @@ io.on('connection', (socket) => {
     }
 
     const target = games[pin][data.targetId];
-    if (!target || target.id === player.id || target.spectator || target.isHost || target.health <= 0) {
+    if (!isTargetable(target) || target.id === player.id) {
       respond({ accepted: false, reason: 'The selected target is unavailable.' });
       return;
     }
@@ -356,7 +427,7 @@ io.on('connection', (socket) => {
   socket.on('homebase_incident', () => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
-    if (!player || player.spectator || player.isHost || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver || Date.now() - player.lastIncident < 6500) return;
+    if (!player || player.spectator || player.isHost || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || !worlds.get(pin)?.started || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver || Date.now() - player.lastIncident < 6500) return;
     player.lastIncident = Date.now();
     player.tokens -= TOKENS_PER_AGENT;
     player.health = Math.max(0, player.health - 8);
@@ -404,6 +475,10 @@ io.on('connection', (socket) => {
         return;
       }
 
+      io.to(pin).emit('lobby_state', {
+        players: Object.values(games[pin]),
+        started: worlds.get(pin)?.started ?? false
+      });
       finishGameIfWon(pin);
 
       // Cleanup empty games
@@ -423,12 +498,16 @@ setInterval(() => {
 
     const dt = Math.min((now - world.lastUpdate) / 1000, 0.1);
     world.lastUpdate = now;
+    if (!world.started) {
+      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: false, started: false });
+      return;
+    }
     if (world.gameOver) {
-      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true });
+      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true, started: true });
       return;
     }
     if (world.paused) {
-      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true });
+      io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: true, started: true });
       return;
     }
     const damageByPlayer = new Map();
@@ -436,7 +515,7 @@ setInterval(() => {
     world.agents = world.agents.filter(agent => {
       const target = players[agent.targetId];
       const owner = players[agent.ownerId];
-      if (!target || target.spectator || target.isHost || target.health <= 0) return false;
+      if (!isTargetable(target)) return false;
       if (!owner || (owner.alliance && owner.alliance === target.alliance)) return false;
 
       const dx = target.x - agent.x;
@@ -458,7 +537,7 @@ setInterval(() => {
     });
 
     finishGameIfWon(pin);
-    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: world.paused });
+    io.to(pin).emit('world_state', { players: Object.values(players), agents: world.agents, paused: world.paused, started: true });
   });
 }, 50);
 

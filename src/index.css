@@ -31,6 +31,79 @@ body {
   overflow: hidden;
 }
 
+.waiting-lobby {
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #000;
+}
+
+.waiting-lobby-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border: 2px solid #fff;
+  padding: 32px;
+}
+
+.waiting-lobby-card h1 {
+  margin: 8px 0 16px;
+  font-size: 2.5rem;
+}
+
+.waiting-lobby-message {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.waiting-player-list {
+  margin-top: 24px;
+  border-top: 1px dashed #fff;
+  border-bottom: 1px dashed #fff;
+  padding: 16px 0;
+}
+
+.waiting-player-list h2 {
+  margin-bottom: 12px;
+  font-size: 1.4rem;
+}
+
+.waiting-player-list ul {
+  list-style: none;
+}
+
+.waiting-player-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #333;
+  padding: 8px 4px;
+  font-size: 1.25rem;
+}
+
+.waiting-player-role,
+.waiting-empty {
+  color: #aaa;
+}
+
+.waiting-lobby-error {
+  margin-top: 16px;
+  border: 1px solid #f66;
+  color: #f88;
+  padding: 8px;
+}
+
+.waiting-start-button {
+  margin-top: 20px;
+}
+
+.waiting-leave-button {
+  margin-top: 10px;
+}
+
 .slide-panel {
   position: absolute;
   top: 0;
