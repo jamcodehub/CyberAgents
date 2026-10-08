@@ -1,10 +1,14 @@
 import React from 'react';
 
 export default function LogPanel({ isOpen, logs, castles }) {
-  const allianceColors = new Map(
-    castles.filter(castle => castle.alliance && castle.color)
-      .map(castle => [castle.alliance, castle.color])
-  );
+  const colorForLog = (log) => {
+    const actor = castles.find(castle => castle.id === log.playerId);
+    const alliance = actor?.alliance ?? log.alliance;
+    const allianceMember = alliance
+      ? castles.find(castle => castle.alliance === alliance && castle.color)
+      : null;
+    return allianceMember?.color || actor?.color || log.color || undefined;
+  };
 
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>
@@ -19,7 +23,7 @@ export default function LogPanel({ isOpen, logs, castles }) {
           {logs.map((log, i) => (
             <div key={i} style={{ padding: '10px', border: '1px solid #333', background: '#111' }}>
               <span style={{ color: '#888', marginRight: '15px' }}>[{log.time}]</span>
-              <span style={{ color: allianceColors.get(log.alliance) || log.color || undefined }}>
+              <span style={{ color: colorForLog(log) }}>
                 {log.msg}
               </span>
             </div>

@@ -20,31 +20,29 @@ export default function IntelPanel({ isOpen, castles, spectator = false }) {
           </tr>
         </thead>
         <tbody>
-          {castles.map(c => (
-            <tr
-              key={c.id}
-              style={{
-                opacity: c.health > 0 ? 1 : 0.5,
-                color: c.spectator ? '#777' : c.alliance && c.color ? c.color : undefined
-              }}
-            >
-              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+          {castles.map(c => {
+            const textColor = c.spectator ? '#777' : c.alliance && c.color ? c.color : undefined;
+            const cellStyle = { borderBottom: '1px solid #333', padding: '10px', color: textColor };
+            return (
+              <tr key={c.id} style={{ opacity: c.health > 0 ? 1 : 0.5 }}>
+              <td style={cellStyle}>
                 {c.health > 0 ? '[ ONLINE ]' : '[ OFFLINE ]'}
               </td>
-              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+              <td style={cellStyle}>
                 {c.name}
               </td>
-              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+              <td style={cellStyle}>
                 {formatHealthPercent(c.health)}
               </td>
-              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
+              <td style={cellStyle}>
                 {c.spectator ? '—' : `${Math.floor((c.tokens ?? 0) / 1000).toLocaleString()}k`}
               </td>
-              <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
-                {spectator ? (c.alliance || '-') : (c.isSelf ? 'FRIENDLY' : 'HOSTILE')}
+              <td style={cellStyle}>
+                {c.alliance || (spectator ? '-' : c.isSelf ? 'FRIENDLY' : 'HOSTILE')}
               </td>
-            </tr>
-          ))}
+              </tr>
+            );
+          })}
           {castles.length === 0 && (
             <tr>
               <td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>NO DATA AVAILABLE. CONNECT TO NETWORK.</td>
