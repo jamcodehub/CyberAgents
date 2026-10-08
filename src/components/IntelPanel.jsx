@@ -1,5 +1,7 @@
 import React from 'react';
 
+const formatHealthPercent = (health = 0) => `${Math.floor(health / 10)}%`;
+
 export default function IntelPanel({ isOpen, castles, spectator = false }) {
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>
@@ -27,7 +29,7 @@ export default function IntelPanel({ isOpen, castles, spectator = false }) {
                 {c.name}
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
-                {Math.floor(c.health)}%
+                {formatHealthPercent(c.health)}
               </td>
               <td style={{ borderBottom: '1px solid #333', padding: '10px' }}>
                 {c.spectator ? '—' : `${Math.floor((c.tokens ?? 0) / 1000).toLocaleString()}k`}

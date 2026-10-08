@@ -35,10 +35,29 @@ body {
   flex: 1;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 16px;
   padding: 24px;
   background: #000;
+}
+
+.waiting-lobby-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.waiting-lobby-pin span {
+  font-size: clamp(1.2rem, 3vw, 1.8rem);
+  letter-spacing: 0.16em;
+}
+
+.waiting-lobby-pin strong {
+  font-size: clamp(4rem, 12vw, 8rem);
+  letter-spacing: 0.16em;
 }
 
 .waiting-lobby-card {
@@ -292,12 +311,12 @@ h1.title {
 }
 
 .castle.host-watchtower .icon {
-  border-color: #4de1ff;
-  color: #4de1ff;
+  border-color: #555;
+  color: #555;
 }
 
 .castle.host-watchtower .name {
-  color: #4de1ff;
+  color: #777;
 }
 
 .castle .name {
@@ -618,11 +637,10 @@ h1.title {
 }
 
 .agent.attacker {
-  width: 12px;
-  height: 12px;
-  margin: -2px;
-  background: #ff5c5c;
-  border: 1px solid #fff;
+  width: 6px;
+  height: 6px;
+  background: var(--projectile-color, #fff);
+  transition: left 100ms ease-in-out, top 100ms ease-in-out;
 }
 
 .team-editor > select {

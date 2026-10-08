@@ -11,6 +11,7 @@ import WaitingLobby from './pages/WaitingLobby';
 import './index.css';
 
 const formatTokens = (tokens = 0) => `${Math.floor(tokens / 1000).toLocaleString()}k`;
+const formatHealthPercent = (health = 0) => `${Math.floor(health / 10)}%`;
 const getTokenBalance = (player, previous) => (
   Number.isFinite(player.tokens)
     ? player.tokens
@@ -707,7 +708,7 @@ export default function App() {
           ) : (
             <div className="status-item">
               <span>Your Castle Integrity:</span>
-              <span>{Math.floor(player?.health || 0)}%</span>
+              <span>{formatHealthPercent(player?.health)}</span>
             </div>
           )}
           {isPaused && <div className="access-status" role="status">GAME PAUSED BY HOST</div>}
@@ -792,7 +793,7 @@ export default function App() {
                 </div>
                 <div className="name">{castle.name}</div>
                 {!castle.spectator && <div className="health-bar">
-                  <div className="health-fill" style={{ width: `${castle.health}%` }}></div>
+                  <div className="health-fill" style={{ width: `${Math.min(100, castle.health / 10)}%` }}></div>
                 </div>}
               </div>
             )
@@ -814,7 +815,11 @@ export default function App() {
             <div
               key={agent.id}
               className={`agent ${agent.type}`}
-              style={{ left: `${agent.x / 10}%`, top: `${agent.y / 7}%` }}
+              style={{
+                left: `${agent.x / 10}%`,
+                top: `${agent.y / 7}%`,
+                '--projectile-color': agent.color || '#ffffff'
+              }}
             />
           ))}
         </div>
@@ -841,7 +846,7 @@ export default function App() {
                   <span className="ladder-player">
                     {entry.name}{entry.alliance ? ` · ${entry.alliance}` : ''}
                   </span>
-                  <span>{Math.floor(entry.health)}% · {formatTokens(entry.tokens)}</span>
+                  <span>{formatHealthPercent(entry.health)} · {formatTokens(entry.tokens)}</span>
                 </li>
               ))}
             </ol>

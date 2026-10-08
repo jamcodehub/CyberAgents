@@ -8,8 +8,12 @@ export default function WaitingLobby({ pin, players, isHost, error, onStart, onL
 
   return (
     <main className="waiting-lobby">
+      <div className="waiting-lobby-pin" aria-label={`Network pin ${pin}`}>
+        <span>NETWORK PIN</span>
+        <strong>{pin}</strong>
+      </div>
       <section className="waiting-lobby-card" aria-labelledby="waiting-lobby-title">
-        <p className="task-kicker">NETWORK LOBBY · PIN {pin}</p>
+        <p className="task-kicker">NETWORK LOBBY</p>
         <h1 id="waiting-lobby-title">&gt;_ WAITING ROOM</h1>
         <p className="waiting-lobby-message">
           {isHost

@@ -27,6 +27,7 @@ const AGENT_NAMES = [
 ];
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const STARTING_HEALTH = 1000;
 const STARTING_TOKENS = 100000;
 const TOKENS_PER_AGENT = 1000;
 const TOKENS_PER_STEAL = 10000;
@@ -145,7 +146,7 @@ io.on('connection', (socket) => {
     games[pin][socket.id] = {
       id: socket.id,
       name: isHost ? 'Host watchtower' : assignAgentName(games[pin]),
-      health: 100,
+      health: STARTING_HEALTH,
       tokens: isHost ? 0 : STARTING_TOKENS,
       isHost,
       spectator: isHost, // hosts watch and manage; they have no base
@@ -403,6 +404,7 @@ io.on('connection', (socket) => {
         x: player.x,
         y: player.y,
         count: agentCount,
+        color: player.alliance && HEX_COLOR.test(player.color) ? player.color : '#ffffff',
         type: 'attacker'
       });
 
