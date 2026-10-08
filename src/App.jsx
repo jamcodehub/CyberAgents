@@ -133,16 +133,20 @@ export default function App() {
       const me = list.find(p => p.id === newSocket.id);
       if (me && !named) {
         named = true;
-        appendLog(me.spectator ? 'You are Host watchtower. Hosts cannot be targeted.' : `Assigned codename: ${me.name}`);
+        appendLog(isHost || me.spectator || me.isHost
+          ? 'You are Host watchtower. Hosts cannot be targeted.'
+          : `Assigned codename: ${me.name}`);
       }
       const previous = stateRef.current.castles;
       setCastles(list.map(p => {
         const prev = previous.find(c => c.id === p.id);
+        const host = p.spectator || p.isHost || (isHost && p.id === newSocket.id);
         return {
           ...p,
-          name: p.spectator || p.isHost ? 'Host watchtower' : p.name,
-          spectator: Boolean(p.spectator || p.isHost),
-          tokens: getTokenBalance(p, prev),
+          name: host ? 'Host watchtower' : p.name,
+          isHost: Boolean(host),
+          spectator: Boolean(host),
+          tokens: host ? 0 : getTokenBalance(p, prev),
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null,
           alliance: p.alliance ?? null,
@@ -156,11 +160,13 @@ export default function App() {
       const previous = stateRef.current.castles;
       setCastles(players.map(p => {
         const prev = previous.find(c => c.id === p.id);
+        const host = p.spectator || p.isHost || (isHost && p.id === newSocket.id);
         return {
           ...p,
-          name: p.spectator || p.isHost ? 'Host watchtower' : p.name,
-          spectator: Boolean(p.spectator || p.isHost),
-          tokens: getTokenBalance(p, prev),
+          name: host ? 'Host watchtower' : p.name,
+          isHost: Boolean(host),
+          spectator: Boolean(host),
+          tokens: host ? 0 : getTokenBalance(p, prev),
           isSelf: p.id === newSocket.id,
           teamConfig: prev?.teamConfig ?? null
         };
@@ -179,12 +185,13 @@ export default function App() {
     });
 
     newSocket.on('player_joined', (player) => {
-      const host = player.spectator || player.isHost;
+      const host = player.spectator || player.isHost || (isHost && player.id === newSocket.id);
       setCastles(prev => [...prev.filter(c => c.id !== player.id), {
         ...player,
         name: host ? 'Host watchtower' : player.name,
+        isHost: Boolean(host),
         spectator: Boolean(host),
-        tokens: getTokenBalance(player),
+        tokens: host ? 0 : getTokenBalance(player),
         isSelf: false
       }]);
     });
@@ -313,13 +320,29 @@ export default function App() {
     nextApprovalAtRef.current = Date.now() + 12000;
 
     if (approved) {
-      socket?.emit('agent_action', {
+      let acknowledged = false;
+      const acknowledgementTimer = setTimeout(() => {
+        if (!acknowledged) {
+          addLog('No server confirmation received for the approved action. Check that the latest backend is deployed and reconnect.');
+        }
+      }, 4000);
+      socketRef.current?.emit('agent_action', {
         action: pendingTask.action,
         targetId: pendingTask.targetId,
         agentCount: pendingTask.agentCount
+      }, result => {
+        acknowledged = true;
+        clearTimeout(acknowledgementTimer);
+        if (!result?.accepted) {
+          addLog(`Server rejected the approved action: ${result?.reason || 'the backend did not accept the request'}`);
+          return;
+        }
+        setStewardship(score => score + 20);
+        addLog(result.action === 'attack'
+          ? `Server launched ${result.agentCount} payload agent${result.agentCount === 1 ? '' : 's'} toward ${result.targetName}.`
+          : `Server completed the token theft from ${result.targetName}.`);
       });
-      setStewardship(score => score + 20);
-      addLog(`Approved simulated ${pendingTask.action === 'steal' ? 'token theft' : 'payload'} request: ${pendingTask.title}. Stewardship +20.`);
+      addLog(`Approval submitted for ${pendingTask.title}; waiting for the game server.`);
     } else {
       setStewardship(score => score + 15);
       addLog(`Rejected simulated ${pendingTask.action === 'steal' ? 'token theft' : 'payload'} request: ${pendingTask.title}. Stewardship +15.`);

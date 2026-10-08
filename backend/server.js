@@ -255,39 +255,75 @@ io.on('connection', (socket) => {
   });
 
   // Process game-only agent actions and token transfers.
-  socket.on('agent_action', (data) => {
+  socket.on('agent_action', (data, acknowledge) => {
+    const respond = (result) => {
+      if (typeof acknowledge === 'function') acknowledge(result);
+    };
     const pin = socket.pin;
-    if (!pin || !games[pin]) return;
+    if (!pin || !games[pin]) {
+      respond({ accepted: false, reason: 'You are no longer connected to this game.' });
+      return;
+    }
 
     const player = games[pin][socket.id];
-    if (!player || player.spectator || player.isHost) return;
-    if (worlds.get(pin)?.paused || worlds.get(pin)?.gameOver) return;
-    if (data?.action !== 'attack' && data?.action !== 'steal') return;
+    if (!player || player.spectator || player.isHost) {
+      respond({ accepted: false, reason: 'Host and spectator accounts cannot deploy agents.' });
+      return;
+    }
+    if (worlds.get(pin)?.paused || worlds.get(pin)?.gameOver) {
+      respond({ accepted: false, reason: 'The game is paused or has ended.' });
+      return;
+    }
+    if (data?.action !== 'attack' && data?.action !== 'steal') {
+      respond({ accepted: false, reason: 'The requested agent action is invalid.' });
+      return;
+    }
 
     const target = games[pin][data.targetId];
-    if (!target || target.id === player.id || target.spectator || target.isHost) return;
-    if (player.alliance && player.alliance === target.alliance) return;
-    if (data.action === 'steal' && target.tokens <= 0) return;
+    if (!target || target.id === player.id || target.spectator || target.isHost || target.health <= 0) {
+      respond({ accepted: false, reason: 'The selected target is unavailable.' });
+      return;
+    }
+    if (player.alliance && player.alliance === target.alliance) {
+      respond({ accepted: false, reason: 'Agents cannot target an allied player.' });
+      return;
+    }
+    if (data.action === 'steal' && target.tokens <= 0) {
+      respond({ accepted: false, reason: 'The target has no tokens to steal.' });
+      return;
+    }
     const configuredCount = player.actions
       .filter(action => action.action === data.action && action.targetId === target.id)
       .reduce((total, action) => total + action.count, 0);
-    if (configuredCount === 0) return;
+    if (configuredCount === 0) {
+      respond({ accepted: false, reason: 'The server has no deployed agents configured for this target. Deploy your team settings again.' });
+      return;
+    }
 
     // Rate-limit repeated actions against the same target.
     const now = Date.now();
     const actionKey = `${data.action}:${target.id}`;
-    if (now - (player.lastActionByTarget[actionKey] || 0) < 2000) return;
+    if (now - (player.lastActionByTarget[actionKey] || 0) < 2000) {
+      respond({ accepted: false, reason: 'Please wait before sending another action to this target.' });
+      return;
+    }
 
     // Hard limit on agent count to prevent crashes
     let agentCount = parseInt(data.agentCount) || 1;
     agentCount = Math.min(Math.max(agentCount, 1), configuredCount, 50);
     const actionCost = agentCount * TOKENS_PER_AGENT;
-    if (player.tokens < actionCost) return;
+    if (player.tokens < actionCost) {
+      respond({ accepted: false, reason: `Not enough tokens. This action costs ${agentCount}k tokens.` });
+      return;
+    }
+    const world = worlds.get(pin);
+    if (!world) {
+      respond({ accepted: false, reason: 'The game world is unavailable. Rejoin the game and try again.' });
+      return;
+    }
     player.lastActionByTarget[actionKey] = now;
     player.tokens -= actionCost;
 
-    const world = worlds.get(pin);
-    if (!world) return;
     if (data.action === 'attack') {
       for (let i = 0; i < agentCount; i++) {
         world.agents.push({
@@ -300,6 +336,7 @@ io.on('connection', (socket) => {
         });
       }
 
+      respond({ accepted: true, action: data.action, agentCount, targetName: target.name });
       io.to(pin).emit('attack_launched', {
         attackerId: socket.id,
         targetId: data.targetId,
@@ -312,6 +349,7 @@ io.on('connection', (socket) => {
     const stolen = Math.min(TOKENS_PER_STEAL, target.tokens);
     target.tokens -= stolen;
     player.tokens += stolen;
+    respond({ accepted: true, action: data.action, agentCount, targetName: target.name, stolen });
     broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`);
   });
 
