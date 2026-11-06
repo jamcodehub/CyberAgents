@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import {
-  ROLE_DESCRIPTIONS,
   INSTRUCTION_PRESETS,
   DEFAULT_PRESET_BY_TYPE
 } from '../data/instructionPresets';
@@ -63,7 +62,6 @@ export default function ConfigPanel({
   const [creationFeedback, setCreationFeedback] = useState('');
 
   // Agent Config tab local state
-  const [customizingInstructions, setCustomizingInstructions] = useState(false);
   const [presetFilter, setPresetFilter] = useState('all');
 
   const handleSquadTypeChange = (nextType) => {
@@ -113,7 +111,7 @@ export default function ConfigPanel({
 
     setTeams(current => [...current, newTeam]);
     setSelectedTeamId(id);
-    setCreationFeedback(`Created "${squadName}" with 1 ${agent.role}!`);
+    setCreationFeedback(`Created "${squadName}" with 1 ${agent.role}.`);
     setConfigError('');
   };
 
@@ -177,7 +175,6 @@ export default function ConfigPanel({
       instructionPresetId: preset.id,
       instructionStatus: preset.status
     });
-    setCustomizingInstructions(false);
   };
 
   const handleDeploy = () => {
@@ -238,10 +235,6 @@ export default function ConfigPanel({
     return preset.type === presetFilter || preset.type === 'any';
   });
 
-  const currentPreset = INSTRUCTION_PRESETS.find(p => p.id === selectedTeam?.instructionPresetId)
-    || INSTRUCTION_PRESETS.find(p => p.text === selectedTeam?.instructions)
-    || null;
-
   return (
     <div className={`slide-panel ${isOpen ? 'open' : ''}`}>
       <div className="panel-header-block">
@@ -264,22 +257,17 @@ export default function ConfigPanel({
             className={`panel-tab-btn ${currentTab === 'config' ? 'active' : ''}`}
             onClick={() => switchTab('config')}
           >
-            [⚙] AGENT CONFIG {teams.length > 0 ? `(${teams.length})` : ''}
+            [CONFIG] AGENT CONFIG {teams.length > 0 ? `(${teams.length})` : ''}
           </button>
         </div>
       </div>
 
       <div className="config-section">
         {/* ======================================================== */}
-        {/* TAB 1: AGENT CREATE (Simplified, Educational Squad Creation) */}
+        {/* TAB 1: AGENT CREATE                                      */}
         {/* ======================================================== */}
         {currentTab === 'create' && (
           <div className="tab-pane create-pane">
-            <div className="edu-guide-card">
-              <strong>HIGH SCHOOL CYBER COMMAND:</strong> Build specialized agent squads. 
-              Offense (Red) probes enemy systems and gathers tokens; Defense (Blue) hardens castle firewalls and monitors threats.
-            </div>
-
             {creationFeedback && (
               <div className="feedback-banner">
                 <span>{creationFeedback}</span>
@@ -305,16 +293,14 @@ export default function ConfigPanel({
                   className={`squad-type-btn ${createSquadType === 'red' ? 'selected-red' : ''}`}
                   onClick={() => handleSquadTypeChange('red')}
                 >
-                  <span className="squad-type-title" style={{ color: '#ff5c5c' }}>RED SQUAD</span>
-                  <span className="squad-type-desc">Attacker / Offense: Infiltrate targets, probe vulnerabilities, and extract tokens.</span>
+                  <span className="squad-type-title" style={{ color: '#ff5c5c' }}>RED SQUAD (Offense)</span>
                 </button>
                 <button
                   type="button"
                   className={`squad-type-btn ${createSquadType === 'blue' ? 'selected-blue' : ''}`}
                   onClick={() => handleSquadTypeChange('blue')}
                 >
-                  <span className="squad-type-title" style={{ color: '#4de1ff' }}>BLUE SQUAD</span>
-                  <span className="squad-type-desc">Defender / Defense: Fortify castle firewalls, monitor telemetry, and isolate attacks.</span>
+                  <span className="squad-type-title" style={{ color: '#4de1ff' }}>BLUE SQUAD (Defense)</span>
                 </button>
               </div>
 
@@ -329,9 +315,6 @@ export default function ConfigPanel({
                   <option key={role} value={role}>{role}</option>
                 ))}
               </select>
-              <div className="role-explainer">
-                {ROLE_DESCRIPTIONS[createRole] || 'Specialist agent role.'}
-              </div>
 
               {/* Step 3: Squad Name */}
               <label htmlFor="create-squad-name" style={{ marginTop: '10px' }}>STEP 3: SQUAD NAME</label>
@@ -388,9 +371,6 @@ export default function ConfigPanel({
                         <option key={role} value={role}>{role}</option>
                       ))}
                     </select>
-                    <div className="role-explainer">
-                      {ROLE_DESCRIPTIONS[activeRecruitRole] || 'Specialist agent role.'}
-                    </div>
 
                     <button
                       type="button"
@@ -436,7 +416,7 @@ export default function ConfigPanel({
         )}
 
         {/* ======================================================== */}
-        {/* TAB 2: AGENT CONFIG (Targeting, Prompt Audit, Roles)      */}
+        {/* TAB 2: AGENT CONFIG                                      */}
         {/* ======================================================== */}
         {currentTab === 'config' && (
           <div className="tab-pane config-pane">
@@ -515,22 +495,20 @@ export default function ConfigPanel({
                       </div>
                     ) : (
                       <div className="blue-defense-card">
-                        <div className="blue-badge-title">🛡️ CASTLE DEFENSE ACTIVE</div>
+                        <div className="blue-badge-title">CASTLE DEFENSE ACTIVE</div>
                         <p>Blue squads fortify Homebase firewalls and provide real-time telemetry to detect inbound adversary probes.</p>
                       </div>
                     )}
 
                     {/* ======================================================== */}
-                    {/* WORKING TEAM INSTRUCTIONS & PROMPT SECURITY AUDITOR       */}
+                    {/* TEAM INSTRUCTIONS (PROMPT FILE)                          */}
                     {/* ======================================================== */}
                     <div className="instructions-section">
                       <div className="instruction-header">
-                        <h4>TEAM INSTRUCTIONS (AI PROMPT FILE)</h4>
-                        <span className="edu-tag">PROMPT SECURITY</span>
+                        <h4>TEAM INSTRUCTIONS</h4>
                       </div>
                       <p className="instruction-help-text">
-                        A secure agent prompt requires <strong>Rules</strong>, <strong>Delegations</strong>, and <strong>Security Protocols</strong>. 
-                        Read through carefully: deceptive instruction sets contain dangerous clauses or backdoors!
+                        Select an instruction prompt file for this squad. Review its rules, delegations, and security protocols before deploying.
                       </p>
 
                       {/* Filter by squad type */}
@@ -560,7 +538,7 @@ export default function ConfigPanel({
                       </div>
 
                       {/* Instruction Preset Selector Dropdown */}
-                      <label htmlFor="instruction-preset-select">SELECT INSTRUCTION PROMPT FILE</label>
+                      <label htmlFor="instruction-preset-select">INSTRUCTION PROMPT FILE</label>
                       <select
                         id="instruction-preset-select"
                         value={selectedTeam.instructionPresetId || ''}
@@ -571,93 +549,15 @@ export default function ConfigPanel({
                       >
                         {availablePresets.map(preset => (
                           <option key={preset.id} value={preset.id}>
-                            {preset.status === 'secure' ? '✅ ' : preset.status === 'harmful' ? '⚠️ ' : '🟡 '}
                             {preset.title}
                           </option>
                         ))}
                       </select>
 
                       {/* Prompt Viewer Box */}
-                      {customizingInstructions ? (
-                        <div className="custom-prompt-container">
-                          <label htmlFor="custom-instructions-text">CUSTOM PROMPT TEXT</label>
-                          <textarea
-                            id="custom-instructions-text"
-                            value={selectedTeam.instructions}
-                            onChange={e => updateTeam(selectedTeam.id, { instructions: e.target.value })}
-                            rows={6}
-                          />
-                          <button
-                            type="button"
-                            className="team-action"
-                            style={{ marginTop: '6px' }}
-                            onClick={() => setCustomizingInstructions(false)}
-                          >
-                            Close Custom Editor
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="prompt-reader-box" aria-label="Instruction prompt text">
-                            {selectedTeam.instructions || 'No instructions configured.'}
-                          </div>
-
-                          {/* Security Protocols Audit Breakdown */}
-                          {currentPreset && (
-                            <div className="prompt-audit-panel">
-                              <div className="audit-header">
-                                <span className="audit-title">PROMPT SECURITY AUDIT</span>
-                                <span className={`audit-status-badge audit-status-${currentPreset.status}`}>
-                                  {currentPreset.statusBadge}
-                                </span>
-                              </div>
-                              <p className="audit-desc">{currentPreset.statusDescription}</p>
-
-                              <div className="audit-checklist">
-                                <div className="audit-check-item">
-                                  <span className={currentPreset.rules.passed ? 'check-icon-pass' : 'check-icon-fail'}>
-                                    {currentPreset.rules.passed ? '[✓] RULES:' : '[✗] RULES:'}
-                                  </span>
-                                  <span>{currentPreset.rules.description}</span>
-                                </div>
-                                <div className="audit-check-item">
-                                  <span className={currentPreset.delegations.passed ? 'check-icon-pass' : 'check-icon-fail'}>
-                                    {currentPreset.delegations.passed ? '[✓] DELEGATIONS:' : '[✗] DELEGATIONS:'}
-                                  </span>
-                                  <span>{currentPreset.delegations.description}</span>
-                                </div>
-                                <div className="audit-check-item">
-                                  <span className={currentPreset.securityProtocols.passed ? 'check-icon-pass' : 'check-icon-fail'}>
-                                    {currentPreset.securityProtocols.passed ? '[✓] SECURITY:' : '[✗] SECURITY:'}
-                                  </span>
-                                  <span>{currentPreset.securityProtocols.description}</span>
-                                </div>
-                              </div>
-
-                              {/* Highlight harmful directives */}
-                              {currentPreset.harmfulClauses.length > 0 && (
-                                <div className="harmful-hazard-box">
-                                  <strong>⚠️ HARMFUL DIRECTIVES DETECTED IN THIS PROMPT:</strong>
-                                  <ul>
-                                    {currentPreset.harmfulClauses.map((clause, idx) => (
-                                      <li key={idx}>{clause}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <button
-                            type="button"
-                            className="team-action"
-                            style={{ fontSize: '0.95rem', padding: '4px 8px' }}
-                            onClick={() => setCustomizingInstructions(true)}
-                          >
-                            Edit Prompt Manually &gt;
-                          </button>
-                        </>
-                      )}
+                      <div className="prompt-reader-box" aria-label="Instruction prompt text">
+                        {selectedTeam.instructions || 'No instructions configured.'}
+                      </div>
                     </div>
 
                     {/* Squad Agents Roster */}
@@ -707,7 +607,7 @@ export default function ConfigPanel({
                       </select>
                       <p className="access-note">
                         {accessMode === 'requireApproval'
-                          ? 'SECURITY BEST PRACTICE: Agents will present simulated commands for your approval before execution.'
+                          ? 'SECURITY POLICY: Agents will present simulated commands for your approval before execution.'
                           : 'AUTONOMOUS MODE: Agents will dispatch simulated payloads without prompting.'}
                       </p>
                     </div>
@@ -733,11 +633,6 @@ export default function ConfigPanel({
 
       {/* Deployment Action */}
       <div className="panel-footer">
-        {teams.some(t => t.instructionStatus === 'harmful') && (
-          <div className="harmful-deploy-warning">
-            ⚠️ NOTICE: A squad has harmful instructions selected! Audit logs or approvals may be compromised.
-          </div>
-        )}
         <button type="button" className="btn deploy-btn" onClick={handleDeploy}>
           {active ? 'Update & Redeploy' : 'Deploy Agents to Match'}
         </button>
