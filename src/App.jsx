@@ -367,6 +367,14 @@ export default function App() {
         }
 
         addLog(`Team configuration deployed and confirmed by the server (${result.actionCount} target action${result.actionCount === 1 ? '' : 's'} active).`);
+        const hasHarmfulPrompt = parsedConfig.teams?.some(t => t.instructionStatus === 'harmful');
+        const allSecurePrompts = parsedConfig.teams?.length > 0 && parsedConfig.teams?.every(t => t.instructionStatus === 'secure');
+        if (hasHarmfulPrompt) {
+          addLog('SECURITY WARNING: Squad deployed with harmful instructions! Audit logs or approval gates may be bypassed.');
+        } else if (allSecurePrompts) {
+          addLog('PROMPT AUDIT PASSED: Squad instructions verified with Rules, Delegations, and Security Protocols.');
+        }
+
         if (parsedConfig.accessMode === 'requireApproval') {
           const action = parsedConfig.attacks[0];
           const target = action && stateRef.current.castles.find(castle => castle.id === action.targetId);
@@ -378,6 +386,7 @@ export default function App() {
             const team = parsedConfig.teams.find(item => item.id === action.teamId);
             const requester = team?.agents[0]?.role || 'Attacker Agent';
             const isStealing = action.action === 'steal';
+            const isPromptHarmful = team?.instructionStatus === 'harmful';
             const operationCount = Math.min(deployedAction.count, Math.floor((localPlayer?.tokens ?? 0) / 1000));
             if (operationCount <= 0) {
               setPendingTask(null);
@@ -389,11 +398,12 @@ export default function App() {
               : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`;
             setPendingTask({
               title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
-              description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.`,
+              description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.${isPromptHarmful ? ' [SECURITY WARNING: Squad prompt contains harmful bypasses or suppressed logging.]' : ''}`,
               command,
               action: action.action || 'attack',
               targetId: action.targetId,
-              agentCount: operationCount
+              agentCount: operationCount,
+              risky: isStealing || isPromptHarmful
             });
           } else {
             setPendingTask(null);
@@ -516,6 +526,7 @@ export default function App() {
       const team = player.teamConfig.teams.find(item => item.id === attack.teamId);
       const requester = team?.agents[0]?.role || 'Attacker Agent';
       const isStealing = attack.action === 'steal';
+      const isPromptHarmful = team?.instructionStatus === 'harmful';
       const configuredCount = player.teamConfig.attacks
         .filter(item => item.action === attack.action && item.targetId === attack.targetId)
         .reduce((total, item) => total + item.count, 0);
@@ -523,13 +534,14 @@ export default function App() {
       const operationCost = operationCount * 1000;
       setPendingTask(current => current || {
         title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
-        description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCost / 1000}k tokens and runs only inside the game.`,
+        description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCost / 1000}k tokens and runs only inside the game.${isPromptHarmful ? ' [SECURITY WARNING: Squad prompt contains harmful bypasses or suppressed logging.]' : ''}`,
         command: isStealing
           ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
           : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`,
         action: attack.action || 'attack',
         targetId: attack.targetId,
-        agentCount: operationCount
+        agentCount: operationCount,
+        risky: isStealing || isPromptHarmful
       });
     }, 1000);
 
@@ -570,7 +582,7 @@ export default function App() {
   // Hosts spectate: no agent config, and menus are numbered by what is available.
   const panelOrder = isHost
     ? [null, 'intel', 'logs', 'alliances']
-    : [null, 'config', 'intel', 'logs', 'alliances'];
+    : [null, 'create', 'config', 'intel', 'logs', 'alliances'];
 
   // When your base is destroyed, return to the lobby so you can rejoin as a new agent
   const selfDestroyed = castles.some(c => c.isSelf && c.health <= 0);
@@ -723,7 +735,9 @@ export default function App() {
       {/* Sliding Panels */}
       {!isHost && (
         <ConfigPanel
-          isOpen={openPanel === 'config'}
+          isOpen={openPanel === 'create' || openPanel === 'config'}
+          activeTab={openPanel === 'create' ? 'create' : 'config'}
+          onTabChange={(tab) => setOpenPanel(tab)}
           connectGame={connectGame}
           active={active}
           players={castles.filter(c => !c.isSelf && !c.spectator && !c.isHost)}

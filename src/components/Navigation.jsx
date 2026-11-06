@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 const LABELS = {
   battlefield: 'Battlefield',
+  create: 'Agent Create',
   config: 'Agent Config',
   intel: 'Threat Intel',
   logs: 'Activity Logs',
@@ -28,7 +29,7 @@ export default function Navigation({
   onTogglePanel,
   onLeave,
   isHost = false,
-  panels = [null, 'config', 'intel', 'logs', 'alliances']
+  panels = isHost ? [null, 'intel', 'logs', 'alliances'] : [null, 'create', 'config', 'intel', 'logs', 'alliances']
 }) {
   const [showPin, setShowPin] = useState(false);
   const items = panels.map((panel, i) => ({
