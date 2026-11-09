@@ -12,7 +12,6 @@ export default function Lobby({ joinGame, lobbyError }) {
 
   useEffect(() => {
     if (lobbyError) {
-      setError(lobbyError);
       navigate('/', { replace: true });
     }
   }, [lobbyError, navigate]);
@@ -39,7 +38,7 @@ export default function Lobby({ joinGame, lobbyError }) {
       <div style={{ border: '2px solid #fff', padding: '40px', width: '400px', textAlign: 'center' }}>
         <h1 style={{ marginBottom: '20px' }}>&gt;_ NETWORK_ACCESS</h1>
         
-        {error && <div className="error-msg" style={{ marginBottom: '20px' }}>{error}</div>}
+        {(error || lobbyError) && <div className="error-msg" style={{ marginBottom: '20px' }}>{error || lobbyError}</div>}
 
         <p>Players get a random agent codename. The host spectates and manages the game.</p>
 

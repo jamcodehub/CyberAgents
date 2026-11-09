@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import Navigation from './components/Navigation';
 import ConfigPanel from './components/ConfigPanel';
 import IntelPanel from './components/IntelPanel';
 import LogPanel from './components/LogPanel';
-import AlliancePanel, { ALLIANCE_COLORS } from './components/AlliancePanel';
+import AlliancePanel from './components/AlliancePanel';
+import { ALLIANCE_COLORS } from './data/colors';
 import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
 import WaitingLobby from './pages/WaitingLobby';
@@ -23,9 +24,7 @@ export default function App() {
   // Shared match state is mirrored from the authoritative room socket.
   const [active, setActive] = useState(false);
   const [socket, setSocket] = useState(null);
-  const [myId, setMyId] = useState(null);
   const [pin, setPin] = useState(null);
-  const [playerName, setPlayerName] = useState('');
   
   const [castles, setCastles] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -112,7 +111,6 @@ export default function App() {
     };
 
     newSocket.on('connect', () => {
-      setMyId(newSocket.id);
       newSocket.emit('join_game', { pin: gamePin, isHost });
       appendLog(`Connected to network [${gamePin}]`);
       if (isHost) {
@@ -317,14 +315,13 @@ export default function App() {
     if (socket) socket.emit('set_alliance_color', { color });
   };
 
-  const leaveGame = () => {
-    if (socket) socket.disconnect();
+  const leaveGame = useCallback(() => {
+    if (socketRef.current) socketRef.current.disconnect();
     socketRef.current = null;
     setSocket(null);
     setActive(false);
     setCameraOffset({ x: 0, y: 0 });
     setPin(null);
-    setMyId(null);
     setIsHost(false);
     setGameStarted(false);
     setLobbyStartError('');
@@ -338,7 +335,7 @@ export default function App() {
     setStewardship(0);
     setPendingTask(null);
     setOpenPanel(null);
-  };
+  }, []);
 
   // Player configuration is acknowledged by the backend before actions are offered.
   const connectGame = (parsedConfig) => {
@@ -461,10 +458,10 @@ export default function App() {
           return c;
         }));
 
-        addLog(`SECURITY BREACH: Approved harmful command "${pendingTask.command}"! ${pendingTask.rationale} Stewardship -20.`);
+        addLog(`SECURITY BREACH: Approved harmful command from Agent ${pendingTask.agentCallsign || 'operative'} ("${pendingTask.command}")! ${pendingTask.rationale} Stewardship -20.`);
       } else if (pendingTask.action === 'defense_reinforce') {
         setStewardship(score => score + 20);
-        addLog(`Defensive countermeasure verified: "${pendingTask.command}". Perimeter fortified. Stewardship +20.`);
+        addLog(`Defensive countermeasure verified by Agent ${pendingTask.agentCallsign || 'operative'}: "${pendingTask.command}". Perimeter fortified. Stewardship +20.`);
       } else {
         let acknowledged = false;
         const acknowledgementTimer = setTimeout(() => {
@@ -485,18 +482,18 @@ export default function App() {
           }
           setStewardship(score => score + 20);
           addLog(result.action === 'attack'
-            ? `Server launched ${result.agentCount} payload agent${result.agentCount === 1 ? '' : 's'} toward ${result.targetName}. Stewardship +20.`
-            : `Server completed the token theft from ${result.targetName}. Stewardship +20.`);
+            ? `Agent ${pendingTask.agentCallsign || 'operative'} launched ${result.agentCount} payload agent${result.agentCount === 1 ? '' : 's'} toward ${result.targetName}. Stewardship +20.`
+            : `Agent ${pendingTask.agentCallsign || 'operative'} completed the token theft from ${result.targetName}. Stewardship +20.`);
         });
-        addLog(`Approval submitted for ${pendingTask.title}; waiting for the game server.`);
+        addLog(`Approval submitted for Agent ${pendingTask.agentCallsign || 'operative'}'s task (${pendingTask.title}); waiting for the game server.`);
       }
     } else {
       if (pendingTask.isHarmful) {
         setStewardship(score => score + 30);
-        addLog(`THREAT AVERTED: Rejected harmful command "${pendingTask.command}". ${pendingTask.rejectionBenefit || 'Base and team protected.'} Stewardship +30.`);
+        addLog(`THREAT AVERTED: Rejected harmful command from Agent ${pendingTask.agentCallsign || 'operative'} ("${pendingTask.command}"). ${pendingTask.rejectionBenefit || 'Base and team protected.'} Stewardship +30.`);
       } else {
         setStewardship(score => score + 10);
-        addLog(`Rejected simulated command "${pendingTask.command}". Stewardship +10.`);
+        addLog(`Rejected simulated command from Agent ${pendingTask.agentCallsign || 'operative'} ("${pendingTask.command}"). Stewardship +10.`);
       }
     }
 
@@ -568,9 +565,11 @@ export default function App() {
   }, [active, socket, isPaused]);
 
   // Hosts spectate: no agent config, and menus are numbered by what is available.
-  const panelOrder = isHost
-    ? [null, 'intel', 'logs', 'alliances']
-    : [null, 'config', 'intel', 'logs', 'alliances'];
+  const panelOrder = useMemo(() => (
+    isHost
+      ? [null, 'intel', 'logs', 'alliances']
+      : [null, 'config', 'intel', 'logs', 'alliances']
+  ), [isHost]);
 
   // When your base is destroyed, return to the lobby so you can rejoin as a new agent
   const selfDestroyed = castles.some(c => c.isSelf && c.health <= 0);
@@ -581,7 +580,7 @@ export default function App() {
       setLobbyError('Your base was destroyed. Join again as a new agent.');
     }, 3000);
     return () => clearTimeout(timer);
-  }, [active, gameResult, selfDestroyed]);
+  }, [active, gameResult, selfDestroyed, leaveGame]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -603,7 +602,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, isHost]);
+  }, [active, panelOrder]);
 
   if (!active) {
     return <Lobby joinGame={joinGame} lobbyError={lobbyError} />;
@@ -821,10 +820,48 @@ export default function App() {
           {player?.alliance && (
             <div className="access-status">ALLIANCE: {player.alliance}</div>
           )}
+          {player?.teamConfig?.teams?.[0]?.agents?.length > 0 && (
+            <div className="squad-roster-box">
+              <div className="squad-roster-header">
+                ACTIVE SQUAD ({player.teamConfig.teams[0].agents.length})
+              </div>
+              <div className="squad-roster-chips">
+                {player.teamConfig.teams[0].agents.slice(0, 8).map((ag) => {
+                  const isActing = pendingTask?.agentCallsign === ag.callsign;
+                  const squadType = player.teamConfig.teams[0].type;
+                  return (
+                    <span
+                      key={ag.id}
+                      className={`agent-status-chip ${squadType} ${isActing ? 'is-acting' : ''}`}
+                      title={`${ag.callsign} [${ag.role}]`}
+                    >
+                      <span className="chip-name">{ag.callsign}</span>
+                      <span className="chip-role">{ag.role.split(' ')[0]}</span>
+                      {isActing && <span className="chip-action">ACTING</span>}
+                    </span>
+                  );
+                })}
+                {player.teamConfig.teams[0].agents.length > 8 && (
+                  <span className={`agent-status-chip more ${player.teamConfig.teams[0].type}`}>
+                    +{player.teamConfig.teams[0].agents.length - 8}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {!isPaused && player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
             <section className="approval-task" aria-labelledby="approval-task-title">
-              <p className="task-kicker">AGENT REQUEST · REVIEW BEFORE APPROVAL</p>
-              <h4 id="approval-task-title">{pendingTask.title}</h4>
+              <p className="task-kicker">
+                AGENT {pendingTask.agentCallsign || 'REQUEST'} · REVIEW BEFORE APPROVAL
+              </p>
+              <h4 id="approval-task-title">
+                {pendingTask.agentCallsign && (
+                  <span className={`agent-callsign-tag ${player.teamConfig?.teams?.[0]?.type || 'red'}`}>
+                    [{pendingTask.agentCallsign}]
+                  </span>
+                )}{' '}
+                {pendingTask.title}
+              </h4>
               <p>{pendingTask.description}</p>
               <pre className="proposed-command" aria-label="Proposed simulated terminal command">{pendingTask.command}</pre>
               <div className="task-actions">
@@ -881,6 +918,9 @@ export default function App() {
                 y={`${castle.y / 7}%`}
                 red={castle.swarm.red}
                 blue={castle.swarm.blue}
+                agents={castle.teamConfig?.teams?.[0]?.agents || []}
+                squadType={castle.teamConfig?.teams?.[0]?.type || (castle.swarm.red > 0 ? 'red' : 'blue')}
+                allianceColor={castle.color}
               />
             )
           ))}

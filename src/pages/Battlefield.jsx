@@ -15,7 +15,7 @@ const INITIAL_DEFEND_CONFIG = `{
   "defendersCount": 0
 }`;
 
-export default function Battlefield({ castles, agents, active, connectGame, myId }) {
+export default function Battlefield({ castles, agents, active, connectGame }) {
   const [attackConfig, setAttackConfig] = useState(INITIAL_ATTACK_CONFIG);
   const [defendConfig, setDefendConfig] = useState(INITIAL_DEFEND_CONFIG);
   const [configError, setConfigError] = useState("");

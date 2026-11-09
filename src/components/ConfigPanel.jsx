@@ -3,6 +3,7 @@ import {
   INSTRUCTION_PRESETS,
   DEFAULT_PRESET_BY_TYPE
 } from '../data/instructionPresets';
+import { generateCallsign, getFactionColor } from '../data/callsigns';
 
 const TEAM_TYPES = {
   red: {
@@ -66,11 +67,15 @@ export default function ConfigPanel({
       if (agentCount > 50) throw new Error('Maximum 50 agents.');
       if (squadType === 'red' && !targetId) throw new Error('Red teams need a target.');
 
-      // Build agents with distributed roles
+      // Build agents with distributed roles and 5-letter callsigns
       const roles = TEAM_TYPES[squadType].roles;
       const agents = Array.from({ length: agentCount }, (_, i) => ({
         id: `agent-${idCounter.current++}`,
-        role: roles[i % roles.length]
+        callsign: generateCallsign(i),
+        role: roles[i % roles.length],
+        faction: squadType,
+        color: getFactionColor(squadType),
+        status: 'ACTIVE'
       }));
 
       const teamId = `team-${idCounter.current++}`;
@@ -167,6 +172,23 @@ export default function ConfigPanel({
             >
               +
             </button>
+          </div>
+          <div className="agent-chips-preview">
+            {Array.from({ length: Math.min(agentCount, 6) }, (_, i) => {
+              const roles = TEAM_TYPES[squadType].roles;
+              const callsign = generateCallsign(i);
+              const role = roles[i % roles.length];
+              return (
+                <span key={i} className={`agent-chip ${squadType}`}>
+                  <strong>{callsign}</strong> {role}
+                </span>
+              );
+            })}
+            {agentCount > 6 && (
+              <span className={`agent-chip more ${squadType}`}>
+                +{agentCount - 6} more agents
+              </span>
+            )}
           </div>
         </div>
 

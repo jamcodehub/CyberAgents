@@ -26,6 +26,13 @@ const AGENT_NAMES = [
   'Pixel', 'Quantum', 'Matrix', 'Nexus', 'Oracle', 'Raven', 'Shadow', 'Spectre', 'Tracer', 'Viper'
 ];
 
+const CALLSIGNS = [
+  'VEXON', 'KORUX', 'TALON', 'AXION', 'PRISM',
+  'CYPHE', 'RAVEN', 'VIPER', 'BLAZE', 'STORM',
+  'HYDRA', 'OMEGA', 'AEGIS', 'DELTA', 'SHARD',
+  'LOGIC', 'SPIKE', 'PULSE', 'DRIFT', 'ORBIT'
+];
+
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const STARTING_HEALTH = 1000;
 const STARTING_TOKENS = 100000;
@@ -481,15 +488,17 @@ io.on('connection', (socket) => {
         targetId: data.targetId,
         agentCount: agentCount
       });
-      broadcastLog(pin, `${player.name} launched ${agentCount} simulated payload agent${agentCount === 1 ? '' : 's'} at ${target.name}, spending ${agentCount}k tokens.`, player);
+      const agentCallsign = CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)];
+      broadcastLog(pin, `${player.name}'s Agent ${agentCallsign} launched ${agentCount} payload agent${agentCount === 1 ? '' : 's'} at ${target.name}, spending ${agentCount}k tokens.`, player);
       return;
     }
 
     const stolen = Math.min(TOKENS_PER_STEAL, target.tokens);
     target.tokens -= stolen;
     player.tokens += stolen;
+    const agentCallsign = CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)];
     respond({ accepted: true, action: data.action, agentCount, targetName: target.name, stolen });
-    broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`, player);
+    broadcastLog(pin, `${player.name}'s Agent ${agentCallsign} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`, player);
   });
 
 const AUTONOMOUS_INCIDENTS = [
@@ -646,7 +655,8 @@ const AUTONOMOUS_INCIDENTS = [
     finishGameIfWon(pin);
 
     const collateralMsg = collateral ? ` The broad scope also disrupted allied base ${collateral.playerName} (-${collateral.damage}% integrity).` : '';
-    broadcastLog(pin, `${player.name} ran simulated command "${commandStr}" (-${selfDamage}% integrity, -${Math.floor(tokensSpent / 1000)}k tokens). ${rationaleStr}${collateralMsg}`, player);
+    const agentCallsign = CALLSIGNS[Math.floor(Math.random() * CALLSIGNS.length)];
+    broadcastLog(pin, `${player.name}'s Agent ${agentCallsign} ran simulated command "${commandStr}" (-${selfDamage}% integrity, -${Math.floor(tokensSpent / 1000)}k tokens). ${rationaleStr}${collateralMsg}`, player);
   });
 
   socket.on('harmful_action_approved', (data, acknowledge) => {

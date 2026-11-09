@@ -674,6 +674,47 @@ h1.title {
   color: #5cff8a;
 }
 
+.agent-chips-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.agent-chip {
+  font-size: 0.95rem;
+  padding: 3px 8px;
+  border: 1px solid #444;
+  background: #0d0d0d;
+  color: #ccc;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.agent-chip.red {
+  border-color: #772222;
+  color: #ff9999;
+}
+
+.agent-chip.red strong {
+  color: #ff5c5c;
+}
+
+.agent-chip.blue {
+  border-color: #1a3c48;
+  color: #99e0ff;
+}
+
+.agent-chip.blue strong {
+  color: #4de1ff;
+}
+
+.agent-chip.more {
+  border-style: dashed;
+  color: #888;
+}
+
 .protocol-list {
   display: flex;
   flex-direction: column;
@@ -774,6 +815,92 @@ h1.title {
   padding: 7px 0;
   margin: 4px 0 10px;
   font-size: 1.05rem;
+}
+
+/* Squad Roster in Battlefield HUD */
+.squad-roster-box {
+  border: 1px solid #333;
+  background: #080808;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.squad-roster-header {
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: #888;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.squad-roster-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  border: 1px solid #333;
+  background: #000;
+  transition: all 0.2s ease;
+}
+
+.agent-status-chip.red {
+  border-color: #552222;
+  color: #ffaaaa;
+}
+
+.agent-status-chip.red .chip-name {
+  color: #ff5c5c;
+  font-weight: bold;
+}
+
+.agent-status-chip.blue {
+  border-color: #1a3c48;
+  color: #aae0ff;
+}
+
+.agent-status-chip.blue .chip-name {
+  color: #4de1ff;
+  font-weight: bold;
+}
+
+.agent-status-chip.is-acting {
+  border-color: #5cff8a;
+  background: #06220e;
+  box-shadow: 0 0 6px rgba(92, 255, 138, 0.4);
+}
+
+.agent-status-chip.more {
+  border-style: dashed;
+  color: #888;
+}
+
+.chip-action {
+  font-size: 0.7rem;
+  background: #5cff8a;
+  color: #000;
+  padding: 1px 3px;
+  font-weight: bold;
+}
+
+.agent-callsign-tag {
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.agent-callsign-tag.red {
+  color: #ff5c5c;
+}
+
+.agent-callsign-tag.blue {
+  color: #4de1ff;
 }
 
 .approval-task {
