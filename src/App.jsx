@@ -573,7 +573,7 @@ export default function App() {
   // Hosts spectate: no agent config, and menus are numbered by what is available.
   const panelOrder = isHost
     ? [null, 'intel', 'logs', 'alliances']
-    : [null, 'create', 'config', 'intel', 'logs', 'alliances'];
+    : [null, 'config', 'intel', 'logs', 'alliances'];
 
   // When your base is destroyed, return to the lobby so you can rejoin as a new agent
   const selfDestroyed = castles.some(c => c.isSelf && c.health <= 0);
@@ -726,9 +726,7 @@ export default function App() {
       {/* Sliding Panels */}
       {!isHost && (
         <ConfigPanel
-          isOpen={openPanel === 'create' || openPanel === 'config'}
-          activeTab={openPanel === 'create' ? 'create' : 'config'}
-          onTabChange={(tab) => setOpenPanel(tab)}
+          isOpen={openPanel === 'config'}
           connectGame={connectGame}
           active={active}
           players={castles.filter(c => !c.isSelf && !c.spectator && !c.isHost)}

@@ -573,415 +573,193 @@ h1.title {
 }
 
 /* ======================================================== */
-/* Agent Operations Tabs & High School Educational Styles   */
+/* Agent Config Panel - Minimal High School Design          */
 /* ======================================================== */
-.panel-header-block {
-  margin-bottom: 10px;
-}
-
-.panel-tab-bar {
+.cfg-row {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  border-bottom: 2px solid #fff;
-  padding-bottom: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.panel-tab-btn {
-  flex: 1;
-  padding: 8px 6px;
-  border: 1px solid #fff;
+.cfg-label {
+  font-size: 1.05rem;
+  color: #888;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cfg-row select {
+  width: 100%;
+  padding: 8px 10px;
   background: #000;
+  border: 1px solid #555;
   color: #fff;
   font: inherit;
   font-size: 1.15rem;
-  text-transform: uppercase;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-  transition: all 0.15s ease;
-}
-
-.panel-tab-btn:hover {
-  background: #222;
-}
-
-.panel-tab-btn.active {
-  background: #fff;
-  color: #000;
-  font-weight: bold;
-}
-
-.feedback-banner {
-  padding: 8px 12px;
-  border: 1px solid #5cff8a;
-  background: #06220e;
-  color: #5cff8a;
-  font-size: 1.1rem;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.feedback-dismiss {
-  background: transparent;
-  border: none;
-  color: #5cff8a;
-  font: inherit;
-  font-size: 1.3rem;
   cursor: pointer;
 }
 
-.builder-card {
-  border: 1px solid var(--border-color);
-  padding: 12px;
-  background: #000;
-}
-
-.builder-card h3 {
-  margin-bottom: 10px;
-  font-size: 1.3rem;
-}
-
-.builder-card label,
-.team-config-card label {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 1.05rem;
-  color: #ddd;
-}
-
-.builder-card input,
-.builder-card select,
-.team-config-card input,
-.team-config-card select,
-.team-config-card textarea {
-  width: 100%;
-  padding: 8px;
-  background: #000;
-  border: 1px solid #888;
-  color: #fff;
-  font: inherit;
-  font-size: 1.1rem;
-  margin-bottom: 8px;
+.cfg-row select:focus {
+  border-color: #fff;
+  outline: none;
 }
 
 .squad-type-grid {
   display: flex;
   gap: 8px;
-  margin-bottom: 12px;
 }
 
 .squad-type-btn {
   flex: 1;
-  border: 1px solid #555;
-  background: #111;
+  padding: 12px 10px;
+  background: #0e0e0e;
+  border: 1px solid #444;
   color: #fff;
-  padding: 10px 8px;
   font: inherit;
+  font-size: 1.15rem;
+  font-weight: bold;
   cursor: pointer;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  text-align: center;
   transition: all 0.15s ease;
 }
 
 .squad-type-btn:hover {
-  border-color: #aaa;
+  border-color: #888;
 }
 
 .squad-type-btn.selected-red {
   border: 2px solid #ff5c5c;
   background: #200808;
+  color: #ff8888;
 }
 
 .squad-type-btn.selected-blue {
   border: 2px solid #4de1ff;
   background: #061822;
+  color: #66e0ff;
 }
 
-.squad-type-title {
-  font-size: 1.25rem;
+.stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid #555;
+  background: #000;
+  max-width: 180px;
+}
+
+.stepper-btn {
+  width: 44px;
+  height: 38px;
+  background: #111;
+  border: none;
+  color: #fff;
+  font: inherit;
+  font-size: 1.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stepper-btn:hover {
+  background: #2a2a2a;
+}
+
+.stepper-value {
+  flex: 1;
+  text-align: center;
+  font-size: 1.3rem;
   font-weight: bold;
+  color: #5cff8a;
 }
 
-.primary-action-btn {
-  width: 100%;
-  padding: 10px;
-  font-size: 1.25rem;
-  font-weight: bold;
-}
-
-.squad-overview-section {
-  border-top: 1px dashed #555;
-  padding-top: 12px;
-}
-
-.squad-overview-section h4 {
-  font-size: 1.15rem;
-  margin-bottom: 8px;
-  color: #eee;
-}
-
-.squad-cards-list {
+.protocol-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.squad-summary-row {
+.protocol-item {
+  border: 1px solid #333;
+  background: #0a0a0a;
+  transition: border-color 0.15s;
+}
+
+.protocol-item:hover {
+  border-color: #555;
+}
+
+.protocol-btn {
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border: 1px solid #444;
-  background: #0e0e0e;
-  padding: 8px 10px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  color: #ccc;
+  font: inherit;
+  font-size: 1.15rem;
+  cursor: pointer;
+  text-align: left;
 }
 
-.squad-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.protocol-btn:hover {
+  color: #fff;
+  background: #141414;
 }
 
-.type-tag {
-  font-size: 0.85rem;
-  padding: 2px 6px;
+.protocol-btn.selected {
+  color: #5cff8a;
   font-weight: bold;
+  background: #061e0e;
+  border-left: 3px solid #5cff8a;
 }
 
-.type-tag.red {
-  background: #ff5c5c;
-  color: #000;
-}
-
-.type-tag.blue {
-  background: #4de1ff;
-  color: #000;
-}
-
-.squad-name {
+.protocol-name {
   font-size: 1.15rem;
 }
 
-.agent-count {
+.protocol-arrow {
   font-size: 0.95rem;
-  color: #aaa;
+  color: #5cff8a;
+  font-weight: bold;
 }
 
-.quick-config-btn {
-  background: #000;
-  border: 1px solid #fff;
-  color: #fff;
-  font: inherit;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-.quick-config-btn:hover {
-  background: #fff;
-  color: #000;
-}
-
-/* Agent Config Tab Styles */
-.empty-config-state {
-  text-align: center;
-  padding: 30px 16px;
-  border: 1px dashed #666;
-  background: #0a0a0a;
-}
-
-.empty-config-state h3 {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
-}
-
-.empty-config-state p {
-  color: #aaa;
-  font-size: 1.1rem;
-  line-height: 1.3;
-}
-
-.section-label {
-  display: block;
-  margin-bottom: 6px;
+.protocol-preview {
+  padding: 10px 12px;
   font-size: 1.05rem;
-  color: #ddd;
-}
-
-.squad-pills {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-  margin-bottom: 12px;
-}
-
-.squad-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid #555;
-  background: #000;
+  line-height: 1.4;
   color: #bbb;
-  font: inherit;
-  font-size: 1.1rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.squad-pill:hover {
-  border-color: #aaa;
-  color: #fff;
-}
-
-.squad-pill.active {
-  border-color: #fff;
-  background: #222;
-  color: #fff;
-  font-weight: bold;
-}
-
-.pill-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.pill-dot.red {
-  background: #ff5c5c;
-}
-
-.pill-dot.blue {
-  background: #4de1ff;
-}
-
-.team-config-card {
-  border: 1px solid var(--border-color);
-  padding: 12px;
-  background: #000;
-}
-
-.red-objectives-box {
-  margin: 10px 0;
-  padding: 10px;
-  border: 1px solid #552222;
-  background: #140505;
-}
-
-.blue-defense-card {
-  margin: 10px 0;
-  padding: 10px;
-  border: 1px solid #1a3c48;
-  background: #06151c;
-  line-height: 1.3;
-}
-
-.blue-badge-title {
-  color: #4de1ff;
-  font-weight: bold;
-  font-size: 1.1rem;
-  margin-bottom: 4px;
-}
-
-/* ======================================================== */
-/* Team Instructions Prompt Section & Security Auditor       */
-/* ======================================================== */
-.instructions-section {
-  border: 1px solid #fff;
-  padding: 12px;
-  margin: 14px 0;
   background: #050505;
-}
-
-.instruction-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.instruction-header h4 {
-  font-size: 1.25rem;
-}
-
-.instruction-help-text {
-  font-size: 1rem;
-  color: #ccc;
-  line-height: 1.3;
-  margin-bottom: 10px;
-}
-
-.instruction-help-text strong {
-  color: #fff;
-}
-
-.preset-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 1rem;
-}
-
-.filter-btn {
-  background: #000;
-  border: 1px solid #666;
-  color: #aaa;
-  font: inherit;
-  font-size: 0.95rem;
-  padding: 3px 8px;
-  cursor: pointer;
-}
-
-.filter-btn.active {
-  border-color: #fff;
-  color: #fff;
-  background: #222;
-}
-
-.prompt-reader-box {
-  background: #000;
-  border: 1px solid #666;
-  padding: 10px;
-  margin: 10px 0;
-  font-family: inherit;
-  font-size: 1.1rem;
-  line-height: 1.35;
-  color: #eee;
-  max-height: 170px;
-  overflow-y: auto;
+  border-top: 1px dashed #333;
   white-space: pre-wrap;
-}
-
-.agent-roster-section {
-  border-top: 1px dashed #555;
-  padding-top: 10px;
-  margin-top: 10px;
-}
-
-.access-note {
-  font-size: 0.95rem;
-  color: #aaa;
-  margin-top: 4px;
-  line-height: 1.2;
+  font-family: inherit;
 }
 
 .panel-footer {
   margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid #444;
+  padding-top: 14px;
+  border-top: 1px solid #333;
 }
 
 .deploy-btn {
   width: 100%;
+  padding: 12px;
   font-size: 1.3rem;
-  padding: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #5cff8a;
+  color: #000;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deploy-btn:hover {
+  background: #7aff9e;
 }
 
 .empty-roster {
