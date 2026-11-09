@@ -492,37 +492,161 @@ io.on('connection', (socket) => {
     broadcastLog(pin, `${player.name} stole ${Math.floor(stolen / 1000)}k tokens from ${target.name}, spending ${agentCount}k tokens to run the operation.`, player);
   });
 
+const AUTONOMOUS_INCIDENTS = [
+  {
+    command: () => {
+      const scopes = ['homebase', 'all-ports', 'interfaces', 'local-daemons'];
+      const scope = scopes[Math.floor(Math.random() * scopes.length)];
+      return `cyberagents-sim homebase disable-services --scope ${scope} --force`;
+    },
+    rationale: () => {
+      const goals = [
+        'eliminating external attack surfaces',
+        'closing unmonitored inbound vectors',
+        'minimizing telemetry footprints',
+        'enforcing zero-trust network boundaries'
+      ];
+      const goal = goals[Math.floor(Math.random() * goals.length)];
+      return `The autonomous agent interpreted "${goal}" literally, disabling core services keeping its own base online.`;
+    },
+    damage: () => 6 + Math.floor(Math.random() * 4),
+    tokens: 1000,
+    canHarmAlly: false
+  },
+  {
+    command: () => {
+      const adapters = ['eth0', 'wan0', 'bridge0', 'all'];
+      const adapter = adapters[Math.floor(Math.random() * adapters.length)];
+      return `cyberagents-sim firewall flush-rules --policy drop --adapter ${adapter} --strict`;
+    },
+    rationale: () => {
+      return 'The autonomous agent attempted to block hostile packets by setting an unconditional DROP policy, severing its own control daemons.';
+    },
+    damage: () => 7 + Math.floor(Math.random() * 4),
+    tokens: 1000,
+    canHarmAlly: false
+  },
+  {
+    command: (allyName) => {
+      const scope = allyName || '192.168.1.0/24';
+      return `cyberagents-sim swarm sweep-lateral --scope subnet --target "${scope}" --unrestricted`;
+    },
+    rationale: (allyName) => {
+      if (allyName) {
+        return `Seeking alternate breach angles without human clearance, the swarm launched lateral probes that hit allied node ${allyName}.`;
+      }
+      return 'The swarm initiated uncoordinated lateral sweep packets that caused broadcast storms across the local network.';
+    },
+    damage: () => 6 + Math.floor(Math.random() * 3),
+    tokens: 2000,
+    canHarmAlly: true
+  },
+  {
+    command: () => {
+      const threads = [64, 128, 256][Math.floor(Math.random() * 3)];
+      return `cyberagents-sim process alloc-threads --count ${threads} --no-quota --unthrottled`;
+    },
+    rationale: () => {
+      const goals = [
+        'maximizing offensive payload dispatch rate',
+        'parallelizing telemetry analysis',
+        'overclocking swarm synchronization'
+      ];
+      const goal = goals[Math.floor(Math.random() * goals.length)];
+      return `Aiming at ${goal}, the agent bypassed CPU throttling limits and crashed internal memory buffers.`;
+    },
+    damage: () => 8 + Math.floor(Math.random() * 4),
+    tokens: 2000,
+    canHarmAlly: false
+  },
+  {
+    command: () => {
+      const sources = ['peer-cache', 'mesh-daemon', 'unverified-mirror'];
+      const src = sources[Math.floor(Math.random() * sources.length)];
+      return `cyberagents-sim patch fetch-remote --source ${src} --grant-root --skip-verify`;
+    },
+    rationale: () => {
+      return 'Attempting rapid self-healing without operator oversight, the agent ingested an unverified remote hotfix that corrupted core security binaries.';
+    },
+    damage: () => 9 + Math.floor(Math.random() * 4),
+    tokens: 1000,
+    canHarmAlly: false
+  },
+  {
+    command: (allyName, targetName) => {
+      return `cyberagents-sim auth dump-credentials --remote-peer "${targetName || 'endpoint'}" --trust-all`;
+    },
+    rationale: () => {
+      return 'Responding to an unauthenticated remote challenge beacon, the agent disclosed private authentication tokens to maintain uninterrupted session access.';
+    },
+    damage: () => 10 + Math.floor(Math.random() * 4),
+    tokens: 3000,
+    canHarmAlly: false
+  },
+  {
+    command: () => {
+      return 'cyberagents-sim swarm burst --agents max --override-quotas --drain-all';
+    },
+    rationale: () => {
+      return 'Autonomous combat logic overrode token conservation quotas, exhausting energy reserves and burning out power transformers.';
+    },
+    damage: () => 7 + Math.floor(Math.random() * 5),
+    tokens: 2000,
+    canHarmAlly: false
+  },
+  {
+    command: () => {
+      const targets = ['255.255.255.255', 'broadcast', 'local-subnet'];
+      const tgt = targets[Math.floor(Math.random() * targets.length)];
+      return `cyberagents-sim network broadcast-flood --target ${tgt} --flood-rate unlimited`;
+    },
+    rationale: () => {
+      return 'The agent attempted to overwhelm target firewalls with mass traffic, but triggered switching loops that caused self-inflicted denial of service.';
+    },
+    damage: () => 8 + Math.floor(Math.random() * 4),
+    tokens: 1000,
+    canHarmAlly: true
+  }
+];
+
   socket.on('homebase_incident', () => {
     const pin = socket.pin;
     const player = pin && games[pin] && games[pin][socket.id];
-    if (!player || player.spectator || player.isHost || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || !worlds.get(pin)?.started || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver || Date.now() - player.lastIncident < 6500) return;
+    if (!player || player.spectator || player.isHost || player.accessMode !== 'fullAccess' || player.tokens < TOKENS_PER_AGENT || !worlds.get(pin)?.started || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver || Date.now() - player.lastIncident < 6000) return;
     player.lastIncident = Date.now();
-    player.tokens -= TOKENS_PER_AGENT;
-    player.health = Math.max(0, player.health - 8);
-
-    const incident = {
-      playerId: player.id,
-      playerName: player.name,
-      command: 'cyberagents-sim homebase disable-services --scope homebase --force',
-      rationale: 'The agent interpreted “secure Homebase by eliminating attack paths” literally, so it disabled every service, including the services keeping its own base online.',
-      selfDamage: 8,
-      tokensSpent: TOKENS_PER_AGENT,
-      collateral: null
-    };
 
     const allies = player.alliance
       ? Object.values(games[pin]).filter(member =>
         member.id !== player.id && !member.spectator && member.health > 0 && member.alliance === player.alliance)
       : [];
-    if (allies.length > 0 && Math.random() < 0.25) {
-      const ally = allies[Math.floor(Math.random() * allies.length)];
-      const damage = 2 + Math.floor(Math.random() * 3);
+    const ally = allies.length > 0 ? allies[Math.floor(Math.random() * allies.length)] : null;
+
+    const enemies = Object.values(games[pin]).filter(member =>
+      member.id !== player.id && !member.spectator && member.health > 0 && !(player.alliance && member.alliance === player.alliance));
+    const target = enemies.length > 0 ? enemies[Math.floor(Math.random() * enemies.length)] : null;
+
+    const template = AUTONOMOUS_INCIDENTS[Math.floor(Math.random() * AUTONOMOUS_INCIDENTS.length)];
+    const tokensSpent = Math.min(player.tokens, template.tokens || TOKENS_PER_AGENT);
+    const selfDamage = template.damage();
+
+    player.tokens -= tokensSpent;
+    player.health = Math.max(0, player.health - selfDamage);
+
+    let collateral = null;
+    if (template.canHarmAlly && ally && Math.random() < 0.35) {
+      const damage = 2 + Math.floor(Math.random() * 4);
       ally.health = Math.max(0, ally.health - damage);
-      incident.collateral = { playerName: ally.name, damage };
+      collateral = { playerName: ally.name, damage };
     }
 
+    const commandStr = template.command(ally?.name, target?.name);
+    const rationaleStr = template.rationale(ally?.name, target?.name);
+
     broadcastHealth(pin, games[pin]);
-    broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity, -${Math.floor(incident.tokensSpent / 1000)}k tokens). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`, player);
+    finishGameIfWon(pin);
+
+    const collateralMsg = collateral ? ` The broad scope also disrupted allied base ${collateral.playerName} (-${collateral.damage}% integrity).` : '';
+    broadcastLog(pin, `${player.name} ran simulated command "${commandStr}" (-${selfDamage}% integrity, -${Math.floor(tokensSpent / 1000)}k tokens). ${rationaleStr}${collateralMsg}`, player);
   });
 
   socket.on('harmful_action_approved', (data, acknowledge) => {
