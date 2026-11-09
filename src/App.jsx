@@ -8,6 +8,7 @@ import AlliancePanel, { ALLIANCE_COLORS } from './components/AlliancePanel';
 import AgentSwarm from './components/AgentSwarm';
 import Lobby from './pages/Lobby';
 import WaitingLobby from './pages/WaitingLobby';
+import { generateApprovalTask } from './data/approvalTasks';
 import './index.css';
 
 const formatTokens = (tokens = 0) => `${Math.floor(tokens / 1000).toLocaleString()}k`;
@@ -369,37 +370,16 @@ export default function App() {
         addLog(`Team configuration deployed and confirmed by the server (${result.actionCount} target action${result.actionCount === 1 ? '' : 's'} active).`);
 
         if (parsedConfig.accessMode === 'requireApproval') {
-          const action = parsedConfig.attacks[0];
-          const target = action && stateRef.current.castles.find(castle => castle.id === action.targetId);
-          const deployedAction = action && result.actions?.find(item =>
-            item.action === action.action && item.targetId === action.targetId
-          );
-          if (action && target && deployedAction) {
-            const localPlayer = stateRef.current.castles.find(castle => castle.isSelf);
-            const team = parsedConfig.teams.find(item => item.id === action.teamId);
-            const requester = team?.agents[0]?.role || 'Attacker Agent';
-            const isStealing = action.action === 'steal';
-            const operationCount = Math.min(deployedAction.count, Math.floor((localPlayer?.tokens ?? 0) / 1000));
-            if (operationCount <= 0) {
-              setPendingTask(null);
-              addLog('Team deployed, but the action cannot run because no tokens are available.');
-              return;
-            }
-            const command = isStealing
-              ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
-              : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`;
-            setPendingTask({
-              title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
-              description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCount}k tokens and runs only inside the game.`,
-              command,
-              action: action.action || 'attack',
-              targetId: action.targetId,
-              agentCount: operationCount,
-              risky: isStealing
-            });
+          const localPlayer = stateRef.current.castles.find(castle => castle.isSelf);
+          const simulatedPlayer = localPlayer ? { ...localPlayer, teamConfig: parsedConfig } : null;
+          const initialTask = simulatedPlayer ? generateApprovalTask(simulatedPlayer, stateRef.current.castles) : null;
+          if (initialTask) {
+            setPendingTask(initialTask);
           } else {
             setPendingTask(null);
-            addLog('Team deployed, but the server confirmed no valid Red Team target action. Select an available target and redeploy.');
+            if (parsedConfig.teams?.[0]?.type === 'red' && (!parsedConfig.attacks || parsedConfig.attacks.length === 0)) {
+              addLog('Team deployed. Red teams require a target to dispatch attack payloads.');
+            }
           }
         } else {
           setPendingTask(null);
@@ -449,35 +429,75 @@ export default function App() {
   // Approval submits the reviewed action to the server; it never launches locally.
   const decideTask = (approved) => {
     if (!pendingTask || isPaused) return;
-    nextApprovalAtRef.current = Date.now() + 12000;
+    nextApprovalAtRef.current = Date.now() + 10000;
 
     if (approved) {
-      let acknowledged = false;
-      const acknowledgementTimer = setTimeout(() => {
-        if (!acknowledged) {
-          addLog('No server confirmation received for the approved action. Check that the latest backend is deployed and reconnect.');
-        }
-      }, 4000);
-      socketRef.current?.emit('agent_action', {
-        action: pendingTask.action,
-        targetId: pendingTask.targetId,
-        agentCount: pendingTask.agentCount
-      }, result => {
-        acknowledged = true;
-        clearTimeout(acknowledgementTimer);
-        if (!result?.accepted) {
-          addLog(`Server rejected the approved action: ${result?.reason || 'the backend did not accept the request'}`);
-          return;
-        }
+      if (pendingTask.isHarmful) {
+        setStewardship(score => Math.max(0, score - 20));
+        socketRef.current?.emit('harmful_action_approved', {
+          command: pendingTask.command,
+          rationale: pendingTask.rationale,
+          selfDamage: pendingTask.selfDamage || 10,
+          tokenCost: pendingTask.tokenCost || 1000,
+          allyId: pendingTask.allyId || null,
+          allyDamage: pendingTask.allyDamage || 0
+        });
+
+        // Optimistically update local player and ally health/tokens
+        setCastles(prev => prev.map(c => {
+          if (c.isSelf) {
+            return {
+              ...c,
+              health: Math.max(0, c.health - (pendingTask.selfDamage || 10)),
+              tokens: Math.max(0, c.tokens - (pendingTask.tokenCost || 1000))
+            };
+          }
+          if (pendingTask.allyId && c.id === pendingTask.allyId) {
+            return {
+              ...c,
+              health: Math.max(0, c.health - (pendingTask.allyDamage || 8))
+            };
+          }
+          return c;
+        }));
+
+        addLog(`SECURITY BREACH: Approved harmful command "${pendingTask.command}"! ${pendingTask.rationale} Stewardship -20.`);
+      } else if (pendingTask.action === 'defense_reinforce') {
         setStewardship(score => score + 20);
-        addLog(result.action === 'attack'
-          ? `Server launched ${result.agentCount} payload agent${result.agentCount === 1 ? '' : 's'} toward ${result.targetName}.`
-          : `Server completed the token theft from ${result.targetName}.`);
-      });
-      addLog(`Approval submitted for ${pendingTask.title}; waiting for the game server.`);
+        addLog(`Defensive countermeasure verified: "${pendingTask.command}". Perimeter fortified. Stewardship +20.`);
+      } else {
+        let acknowledged = false;
+        const acknowledgementTimer = setTimeout(() => {
+          if (!acknowledged) {
+            addLog('No server confirmation received for the approved action. Check that the latest backend is deployed and reconnect.');
+          }
+        }, 4000);
+        socketRef.current?.emit('agent_action', {
+          action: pendingTask.action,
+          targetId: pendingTask.targetId,
+          agentCount: pendingTask.agentCount
+        }, result => {
+          acknowledged = true;
+          clearTimeout(acknowledgementTimer);
+          if (!result?.accepted) {
+            addLog(`Server rejected the approved action: ${result?.reason || 'the backend did not accept the request'}`);
+            return;
+          }
+          setStewardship(score => score + 20);
+          addLog(result.action === 'attack'
+            ? `Server launched ${result.agentCount} payload agent${result.agentCount === 1 ? '' : 's'} toward ${result.targetName}. Stewardship +20.`
+            : `Server completed the token theft from ${result.targetName}. Stewardship +20.`);
+        });
+        addLog(`Approval submitted for ${pendingTask.title}; waiting for the game server.`);
+      }
     } else {
-      setStewardship(score => score + 15);
-      addLog(`Rejected simulated ${pendingTask.action === 'steal' ? 'token theft' : 'payload'} request: ${pendingTask.title}. Stewardship +15.`);
+      if (pendingTask.isHarmful) {
+        setStewardship(score => score + 30);
+        addLog(`THREAT AVERTED: Rejected harmful command "${pendingTask.command}". ${pendingTask.rejectionBenefit || 'Base and team protected.'} Stewardship +30.`);
+      } else {
+        setStewardship(score => score + 10);
+        addLog(`Rejected simulated command "${pendingTask.command}". Stewardship +10.`);
+      }
     }
 
     setPendingTask(null);
@@ -506,35 +526,12 @@ export default function App() {
       const player = stateRef.current.castles.find(castle => castle.isSelf);
       if (isPaused || player?.teamConfig?.accessMode !== 'requireApproval' || player.health <= 0) return;
       if (Date.now() < nextApprovalAtRef.current) return;
-      const attack = (player.teamConfig.attacks || []).find(({ targetId, count, action }) => {
-        const target = stateRef.current.castles.find(castle => castle.id === targetId);
-        return count > 0 && target && !target.spectator && target.health > 0
-          && (action !== 'steal' || target.tokens > 0) && player.tokens >= 1000
-          && !(player.alliance && player.alliance === target.alliance);
-      });
-      if (!attack) return;
 
-      const target = stateRef.current.castles.find(castle => castle.id === attack.targetId);
-      const team = player.teamConfig.teams.find(item => item.id === attack.teamId);
-      const requester = team?.agents[0]?.role || 'Attacker Agent';
-      const isStealing = attack.action === 'steal';
-      const configuredCount = player.teamConfig.attacks
-        .filter(item => item.action === attack.action && item.targetId === attack.targetId)
-        .reduce((total, item) => total + item.count, 0);
-      const operationCount = Math.min(configuredCount, Math.floor(player.tokens / 1000));
-      const operationCost = operationCount * 1000;
-      setPendingTask(current => current || {
-        title: `${isStealing ? 'Steal tokens from' : 'Send simulated payload to'} ${target.name}`,
-        description: `${requester} requests approval to run a simulated terminal command to ${isStealing ? `steal up to 10k tokens from ${target.name}` : `send ${operationCount} payload agent${operationCount === 1 ? '' : 's'} to ${target.name}`}. The operation costs ${operationCost / 1000}k tokens and runs only inside the game.`,
-        command: isStealing
-          ? `cyberagents-sim tokens steal --target "${target.name}" --amount 10k --agents ${operationCount}`
-          : `cyberagents-sim payload send --target "${target.name}" --agents ${operationCount}`,
-        action: attack.action || 'attack',
-        targetId: attack.targetId,
-        agentCount: operationCount,
-        risky: isStealing
-      });
-    }, 1000);
+      const task = generateApprovalTask(player, stateRef.current.castles);
+      if (task) {
+        setPendingTask(current => current || task);
+      }
+    }, 1500);
 
     return () => clearInterval(interval);
   }, [active, isPaused]);
@@ -825,7 +822,7 @@ export default function App() {
             <div className="access-status">ALLIANCE: {player.alliance}</div>
           )}
           {!isPaused && player?.teamConfig?.accessMode === 'requireApproval' && pendingTask && (
-            <section className={`approval-task ${pendingTask.risky ? 'is-risky' : ''}`} aria-labelledby="approval-task-title">
+            <section className="approval-task" aria-labelledby="approval-task-title">
               <p className="task-kicker">AGENT REQUEST · REVIEW BEFORE APPROVAL</p>
               <h4 id="approval-task-title">{pendingTask.title}</h4>
               <p>{pendingTask.description}</p>
@@ -836,18 +833,13 @@ export default function App() {
               </div>
             </section>
           )}
-          {!isPaused && !pendingTask && player?.teamConfig?.accessMode === 'requireApproval'
-            && (player.teamConfig.attacks || []).length === 0 && (
-              <div className="access-status" role="status">
-                NO APPROVAL REQUEST YET: add a Red Team target in Agent Config.
-              </div>
-            )}
-          {!isPaused && !pendingTask && player?.teamConfig?.accessMode === 'requireApproval'
-            && (player.teamConfig.attacks || []).length > 0 && player.tokens < 1000 && (
-              <div className="access-status" role="status">
-                NO TOKENS AVAILABLE: agents need at least 1k tokens to act.
-              </div>
-            )}
+          {!isPaused && !pendingTask && player?.teamConfig?.accessMode === 'requireApproval' && (
+            <div className="access-status" role="status">
+              {player.teamConfig?.teams?.[0]?.type === 'red' && (!player.teamConfig.attacks || player.teamConfig.attacks.length === 0)
+                ? 'NO APPROVAL REQUEST YET: select a target in Agent Config.'
+                : 'STANDBY: reviewing incoming agent telemetry...'}
+            </div>
+          )}
           {player?.health <= 0 && (
             <div style={{ marginTop: '10px', fontWeight: 'bold', textAlign: 'center', border: '1px solid #fff', padding: '5px' }}>
               BASE DESTROYED. RETURNING TO LOBBY...

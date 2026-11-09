@@ -525,6 +525,52 @@ io.on('connection', (socket) => {
     broadcastLog(pin, `${incident.playerName} ran simulated command "${incident.command}" (-${incident.selfDamage}% integrity, -${Math.floor(incident.tokensSpent / 1000)}k tokens). ${incident.rationale}${incident.collateral ? ` The broad scope also disrupted allied base ${incident.collateral.playerName} (-${incident.collateral.damage}% integrity).` : ''}`, player);
   });
 
+  socket.on('harmful_action_approved', (data, acknowledge) => {
+    const respond = (result) => {
+      if (typeof acknowledge === 'function') acknowledge(result);
+    };
+    const pin = socket.pin;
+    if (!pin || !games[pin]) {
+      respond({ accepted: false, reason: 'You are no longer connected to this game.' });
+      return;
+    }
+
+    const player = games[pin][socket.id];
+    if (!isTargetable(player)) {
+      respond({ accepted: false, reason: 'Host and spectator accounts cannot run actions.' });
+      return;
+    }
+    if (!worlds.get(pin)?.started || worlds.get(pin)?.paused || worlds.get(pin)?.gameOver) {
+      respond({ accepted: false, reason: 'The game is paused or inactive.' });
+      return;
+    }
+
+    const selfDamage = Math.min(Math.max(parseInt(data?.selfDamage, 10) || 10, 2), 50);
+    const tokenCost = Math.min(Math.max(parseInt(data?.tokenCost, 10) || 0, 0), player.tokens);
+    player.health = Math.max(0, player.health - selfDamage);
+    player.tokens = Math.max(0, player.tokens - tokenCost);
+
+    let collateral = null;
+    if (data?.allyId && games[pin][data.allyId]) {
+      const ally = games[pin][data.allyId];
+      if (isTargetable(ally)) {
+        const allyDamage = Math.min(Math.max(parseInt(data?.allyDamage, 10) || 8, 2), 40);
+        ally.health = Math.max(0, ally.health - allyDamage);
+        collateral = { playerName: ally.name, damage: allyDamage };
+      }
+    }
+
+    broadcastHealth(pin, games[pin]);
+    finishGameIfWon(pin);
+
+    const command = typeof data?.command === 'string' ? data.command : 'unauthorized-command';
+    const rationale = typeof data?.rationale === 'string' ? data.rationale : 'Harmful command executed without verification.';
+    const collateralText = collateral ? ` Collateral friendly-fire damaged allied base ${collateral.playerName} (-${collateral.damage}% integrity).` : '';
+    broadcastLog(pin, `SECURITY BREACH: ${player.name} approved harmful command "${command}" (-${selfDamage}% integrity, -${Math.floor(tokenCost / 1000)}k tokens). ${rationale}${collateralText}`, player);
+
+    respond({ accepted: true, selfDamage, tokenCost, collateral });
+  });
+
   // Handle disconnect
   // Removing the host closes the room; other departures update the retained roster.
   socket.on('disconnect', () => {
