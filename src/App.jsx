@@ -55,7 +55,8 @@ export default function App() {
     stateRef.current = { castles };
   }, [castles]);
 
-  // Local log helpers keep the same entries visible to their author and the room.
+  // Local log helpers keep the same entries visible to their author and the room. c 4 push
+
   const appendLog = (msg, metadata = {}) => {
     setLogs(prev => {
       const newLogs = [{ time: new Date().toLocaleTimeString(), msg, ...metadata }, ...prev];
