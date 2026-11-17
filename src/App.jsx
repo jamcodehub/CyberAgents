@@ -308,13 +308,6 @@ export default function App() {
       : 'Left alliance.');
   };
 
-  const setAllianceColor = (color) => {
-    const me = stateRef.current.castles.find(c => c.isSelf);
-    if (!me?.alliance) return;
-    setCastles(prev => prev.map(c => c.alliance === me.alliance ? { ...c, color } : c));
-    if (socket) socket.emit('set_alliance_color', { color });
-  };
-
   const leaveGame = useCallback(() => {
     if (socketRef.current) socketRef.current.disconnect();
     socketRef.current = null;
@@ -426,7 +419,7 @@ export default function App() {
   // Approval submits the reviewed action to the server; it never launches locally.
   const decideTask = (approved) => {
     if (!pendingTask || isPaused) return;
-    nextApprovalAtRef.current = Date.now() + 10000;
+    nextApprovalAtRef.current = Date.now() + 2000;
 
     if (approved) {
       if (pendingTask.isHarmful) {
@@ -528,7 +521,7 @@ export default function App() {
       if (task) {
         setPendingTask(current => current || task);
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [active, isPaused]);
@@ -735,9 +728,7 @@ export default function App() {
         isOpen={openPanel === 'alliances'}
         castles={castles}
         myAlliance={player?.alliance ?? null}
-        myColor={player?.color ?? null}
         onSetAlliance={setMyAlliance}
-        onSetAllianceColor={setAllianceColor}
         spectator={isHost}
       />
 

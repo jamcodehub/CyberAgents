@@ -1032,7 +1032,8 @@ h1.title {
   gap: 8px;
 }
 
-.alliance-form input {
+.alliance-form input,
+.alliance-form select {
   flex: 1;
   min-width: 0;
   padding: 8px;
@@ -1041,6 +1042,15 @@ h1.title {
   color: #fff;
   font: inherit;
   font-size: 1.1rem;
+}
+
+.alliance-form select {
+  cursor: pointer;
+}
+
+.alliance-form select:focus {
+  border-color: #fff;
+  outline: none;
 }
 
 .alliance-row {

@@ -1,6 +1,19 @@
 import React, { useState } from 'react';
 import { ALLIANCE_COLORS } from '../data/colors';
 
+const PRESET_ALLIANCE_NAMES = [
+  'CYBER VANGUARD',
+  'IRON SYNDICATE',
+  'SHADOW COALITION',
+  'NULL SECTOR',
+  'AEGIS GUARD',
+  'PHANTOM ORDER',
+  'CIPHER CORE',
+  'DELTA SYNDICATE',
+  'SPECTRE NET',
+  'VECTOR PROTOCOL'
+];
+
 function Swatches({ selected, taken, onPick }) {
   return (
     <div className="color-swatches">
@@ -24,12 +37,10 @@ export default function AlliancePanel({
   isOpen,
   castles,
   myAlliance,
-  myColor,
   onSetAlliance,
-  onSetAllianceColor,
   spectator = false
 }) {
-  const [name, setName] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState('');
   const [pickedColor, setPickedColor] = useState(null);
 
   const groups = {};
@@ -39,19 +50,20 @@ export default function AlliancePanel({
   const allianceNames = Object.keys(groups);
   const colorOf = (allianceName) => groups[allianceName].find(c => c.color)?.color || null;
 
-  // Colors used by alliances other than mine
-  const usedByOthers = new Set(
-    allianceNames.filter(n => n !== myAlliance).map(colorOf).filter(Boolean)
-  );
   const allUsed = new Set(allianceNames.map(colorOf).filter(Boolean));
   const firstFree = ALLIANCE_COLORS.find(c => !allUsed.has(c)) || ALLIANCE_COLORS[0];
   const newColor = pickedColor && !allUsed.has(pickedColor) ? pickedColor : firstFree;
 
+  // Filter available preset names that are not already active
+  const availablePresets = PRESET_ALLIANCE_NAMES.filter(n => !allianceNames.includes(n));
+  const effectivePreset = selectedPreset && availablePresets.includes(selectedPreset)
+    ? selectedPreset
+    : (availablePresets[0] || 'GRID COALITION');
+
   const formAlliance = () => {
-    const label = name.trim().toUpperCase().slice(0, 20);
-    if (!label) return;
-    onSetAlliance(label, newColor);
-    setName('');
+    if (!effectivePreset) return;
+    onSetAlliance(effectivePreset, newColor);
+    setSelectedPreset('');
     setPickedColor(null);
   };
 
@@ -61,41 +73,31 @@ export default function AlliancePanel({
 
       <div className="config-section">
         {!spectator && (
-          <>
-            <div className="alliance-box">
-              <p>YOUR ALLIANCE: <strong>{myAlliance || 'NONE'}</strong></p>
-              <p className="empty-roster">Bases in the same alliance never attack each other.</p>
-              {myAlliance && (
-                <>
-                  <label>ALLIANCE COLOR</label>
-                  <Swatches selected={myColor} taken={usedByOthers} onPick={onSetAllianceColor} />
-                  <button className="remove-team" onClick={() => onSetAlliance(null)}>Leave alliance</button>
-                </>
-              )}
+          <div className="alliance-box">
+            <label htmlFor="alliance-preset-select">FORM NEW ALLIANCE</label>
+            <div className="alliance-form">
+              <select
+                id="alliance-preset-select"
+                value={effectivePreset}
+                onChange={event => setSelectedPreset(event.target.value)}
+              >
+                {availablePresets.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+                {availablePresets.length === 0 && (
+                  <option value="GRID COALITION">GRID COALITION</option>
+                )}
+              </select>
+              <button className="team-action" onClick={formAlliance}>Form</button>
             </div>
-
-            <div className="alliance-box">
-              <label htmlFor="alliance-name">FORM / JOIN ALLIANCE</label>
-              <div className="alliance-form">
-                <input
-                  id="alliance-name"
-                  value={name}
-                  onChange={event => setName(event.target.value)}
-                  onKeyDown={event => { if (event.key === 'Enter') formAlliance(); }}
-                  placeholder="Alliance name"
-                  maxLength={20}
-                />
-                <button className="team-action" onClick={formAlliance}>Go</button>
-              </div>
-              <label style={{ marginTop: '10px' }}>COLOR FOR A NEW ALLIANCE</label>
-              <Swatches selected={newColor} taken={allUsed} onPick={setPickedColor} />
-            </div>
-          </>
+            <label style={{ marginTop: '10px' }}>ALLIANCE COLOR</label>
+            <Swatches selected={newColor} taken={allUsed} onPick={setPickedColor} />
+          </div>
         )}
 
         <div className="alliance-box">
           <h3>ACTIVE ALLIANCES</h3>
-          {allianceNames.length === 0 && <p className="empty-roster">No alliances yet.</p>}
+          {allianceNames.length === 0 && <p className="empty-roster">No alliances formed yet.</p>}
           {allianceNames.map(allianceName => (
             <div className="alliance-row" key={allianceName}>
               <div>
@@ -120,6 +122,18 @@ export default function AlliancePanel({
           ))}
         </div>
       </div>
+
+      {!spectator && myAlliance && (
+        <div className="panel-footer">
+          <button
+            type="button"
+            className="remove-team"
+            onClick={() => onSetAlliance(null)}
+          >
+            Leave alliance ({myAlliance})
+          </button>
+        </div>
+      )}
     </div>
   );
 }
