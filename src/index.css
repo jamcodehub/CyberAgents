@@ -31,24 +31,130 @@ body {
   overflow: hidden;
 }
 
+/* Waiting room: make the room PIN and connected player roster easy to read. */
+.waiting-lobby {
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: #000;
+}
+
+.waiting-lobby-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.waiting-lobby-pin span {
+  font-size: clamp(1.2rem, 3vw, 1.8rem);
+  letter-spacing: 0.16em;
+}
+
+.waiting-lobby-pin strong {
+  font-size: clamp(4rem, 12vw, 8rem);
+  letter-spacing: 0.16em;
+}
+
+.waiting-lobby-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border: 2px solid #fff;
+  padding: 32px;
+}
+
+.waiting-lobby-card h1 {
+  margin: 8px 0 16px;
+  font-size: 2.5rem;
+}
+
+.waiting-lobby-message {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.waiting-player-list {
+  margin-top: 24px;
+  border-top: 1px dashed #fff;
+  border-bottom: 1px dashed #fff;
+  padding: 16px 0;
+}
+
+.waiting-player-list h2 {
+  margin-bottom: 12px;
+  font-size: 1.4rem;
+}
+
+.waiting-player-list ul {
+  list-style: none;
+}
+
+.waiting-player-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #333;
+  padding: 8px 4px;
+  font-size: 1.25rem;
+}
+
+.waiting-player-role,
+.waiting-empty {
+  color: #aaa;
+}
+
+.waiting-lobby-error {
+  margin-top: 16px;
+  border: 1px solid #f66;
+  color: #f88;
+  padding: 8px;
+}
+
+.waiting-start-button {
+  margin-top: 20px;
+}
+
+.waiting-leave-button {
+  margin-top: 10px;
+}
+
 .slide-panel {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 250px;
-  width: 400px;
+  width: 480px;
+  max-width: calc(100vw - 260px);
   background: var(--bg-dark);
   border-right: 2px solid var(--border-color);
   padding: 20px;
   z-index: 90;
-  transform: translateX(-150%);
-  transition: transform 0.3s ease-in-out;
+  transform: translate3d(-150%, 0, 0);
+  visibility: hidden;
+  will-change: transform;
+  backface-visibility: hidden;
+  transition: transform 0.3s ease-in, visibility 0s linear 0.3s;
   display: flex;
   flex-direction: column;
 }
 
 .slide-panel.open {
-  transform: translateX(0);
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  transition: transform 0.3s ease-in, visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-panel,
+  .slide-panel.open {
+    transition: none;
+  }
 }
 
 .sidebar {
@@ -61,6 +167,7 @@ body {
   z-index: 10;
 }
 
+/* Battlefield camera: drag to pan and wheel to zoom the shared map view. */
 .battlefield {
   flex: 1;
   position: relative;
@@ -68,6 +175,49 @@ body {
   background-color: var(--bg-dark);
   background-image: radial-gradient(#333 1px, transparent 1px);
   background-size: 20px 20px;
+}
+
+.battlefield {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.battlefield.panning {
+  cursor: grabbing;
+}
+
+.battlefield-world {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.host-map .castle {
+  cursor: grab;
+}
+
+.host-map .castle:active {
+  cursor: grabbing;
+}
+
+.recenter-map-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 11;
+  border: 1px solid #fff;
+  padding: 6px 10px;
+  background: #000;
+  color: #fff;
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.recenter-map-button:hover {
+  background: #fff;
+  color: #000;
 }
 
 h1.title {
@@ -134,7 +284,7 @@ h1.title {
   color: var(--bg-dark);
 }
 
-/* Map Entities */
+/* Map entities: bases, health bars, and in-flight grouped projectiles. */
 .castle {
   position: absolute;
   width: 60px;
@@ -163,6 +313,15 @@ h1.title {
   border-style: dotted;
 }
 
+.castle.host-watchtower .icon {
+  border-color: #555;
+  color: #555;
+}
+
+.castle.host-watchtower .name {
+  color: #777;
+}
+
 .castle .name {
   margin-top: 5px;
   font-size: 1rem;
@@ -189,7 +348,9 @@ h1.title {
   width: 8px;
   height: 8px;
   background: var(--text-main);
-  transform: translate(-50%, -50%);
+  left: 0;
+  top: 0;
+  will-change: transform;
   z-index: 6;
 }
 
@@ -210,6 +371,11 @@ h1.title {
   border-bottom: 2px solid var(--border-color);
   padding-bottom: 5px;
   text-transform: uppercase;
+}
+
+.host-pause-button {
+  width: 100%;
+  margin-bottom: 8px;
 }
 
 .status-item {
@@ -329,6 +495,27 @@ h1.title {
   margin-top: 12px;
 }
 
+.token-rules {
+  color: #bbb;
+  line-height: 1.2;
+}
+
+.team-advanced-settings {
+  border-top: 1px solid #444;
+  padding-top: 8px;
+}
+
+.team-advanced-settings summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.team-advanced-settings[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .team-editor input,
 .team-editor textarea {
   margin-bottom: 10px;
@@ -346,6 +533,14 @@ h1.title {
 
 .agent-list-heading h4 {
   font-size: 1.1rem;
+}
+
+.menu-agent-id {
+  overflow-wrap: anywhere;
+  margin-top: 18px;
+  border-top: 1px solid #555;
+  padding-top: 10px;
+  font-size: 1rem;
 }
 
 .agent-row {
@@ -368,6 +563,244 @@ h1.title {
 .remove-team {
   width: 100%;
   margin-top: 8px;
+  border-color: #ff5c5c;
+  color: #ff8888;
+}
+
+.remove-team:hover {
+  background: #ff5c5c;
+  color: #000;
+}
+
+/* ======================================================== */
+/* Agent Config Panel - Minimal High School Design          */
+/* ======================================================== */
+.cfg-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cfg-label {
+  font-size: 1.05rem;
+  color: #888;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cfg-row select {
+  width: 100%;
+  padding: 8px 10px;
+  background: #000;
+  border: 1px solid #555;
+  color: #fff;
+  font: inherit;
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.cfg-row select:focus {
+  border-color: #fff;
+  outline: none;
+}
+
+.squad-type-grid {
+  display: flex;
+  gap: 8px;
+}
+
+.squad-type-btn {
+  flex: 1;
+  padding: 12px 10px;
+  background: #0e0e0e;
+  border: 1px solid #444;
+  color: #fff;
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: bold;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.squad-type-btn:hover {
+  border-color: #888;
+}
+
+.squad-type-btn.selected-red {
+  border: 2px solid #ff5c5c;
+  background: #200808;
+  color: #ff8888;
+}
+
+.squad-type-btn.selected-blue {
+  border: 2px solid #4de1ff;
+  background: #061822;
+  color: #66e0ff;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid #555;
+  background: #000;
+  max-width: 180px;
+}
+
+.stepper-btn {
+  width: 44px;
+  height: 38px;
+  background: #111;
+  border: none;
+  color: #fff;
+  font: inherit;
+  font-size: 1.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stepper-btn:hover {
+  background: #2a2a2a;
+}
+
+.stepper-value {
+  flex: 1;
+  text-align: center;
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #5cff8a;
+}
+
+.agent-chips-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.agent-chip {
+  font-size: 0.95rem;
+  padding: 3px 8px;
+  border: 1px solid #444;
+  background: #0d0d0d;
+  color: #ccc;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.agent-chip.red {
+  border-color: #772222;
+  color: #ff9999;
+}
+
+.agent-chip.red strong {
+  color: #ff5c5c;
+}
+
+.agent-chip.blue {
+  border-color: #1a3c48;
+  color: #99e0ff;
+}
+
+.agent-chip.blue strong {
+  color: #4de1ff;
+}
+
+.agent-chip.more {
+  border-style: dashed;
+  color: #888;
+}
+
+.protocol-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.protocol-item {
+  border: 1px solid #333;
+  background: #0a0a0a;
+  transition: border-color 0.15s;
+}
+
+.protocol-item:hover {
+  border-color: #555;
+}
+
+.protocol-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  color: #ccc;
+  font: inherit;
+  font-size: 1.15rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.protocol-btn:hover {
+  color: #fff;
+  background: #141414;
+}
+
+.protocol-btn.selected {
+  color: #5cff8a;
+  font-weight: bold;
+  background: #061e0e;
+  border-left: 3px solid #5cff8a;
+}
+
+.protocol-name {
+  font-size: 1.15rem;
+}
+
+.protocol-arrow {
+  font-size: 0.95rem;
+  color: #5cff8a;
+  font-weight: bold;
+}
+
+.protocol-preview {
+  padding: 10px 12px;
+  font-size: 1.05rem;
+  line-height: 1.4;
+  color: #bbb;
+  background: #050505;
+  border-top: 1px dashed #333;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.panel-footer {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid #333;
+}
+
+.deploy-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 1.3rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #5cff8a;
+  color: #000;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deploy-btn:hover {
+  background: #7aff9e;
 }
 
 .empty-roster {
@@ -382,6 +815,92 @@ h1.title {
   padding: 7px 0;
   margin: 4px 0 10px;
   font-size: 1.05rem;
+}
+
+/* Squad Roster in Battlefield HUD */
+.squad-roster-box {
+  border: 1px solid #333;
+  background: #080808;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.squad-roster-header {
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: #888;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.squad-roster-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  border: 1px solid #333;
+  background: #000;
+  transition: all 0.2s ease;
+}
+
+.agent-status-chip.red {
+  border-color: #552222;
+  color: #ffaaaa;
+}
+
+.agent-status-chip.red .chip-name {
+  color: #ff5c5c;
+  font-weight: bold;
+}
+
+.agent-status-chip.blue {
+  border-color: #1a3c48;
+  color: #aae0ff;
+}
+
+.agent-status-chip.blue .chip-name {
+  color: #4de1ff;
+  font-weight: bold;
+}
+
+.agent-status-chip.is-acting {
+  border-color: #5cff8a;
+  background: #06220e;
+  box-shadow: 0 0 6px rgba(92, 255, 138, 0.4);
+}
+
+.agent-status-chip.more {
+  border-style: dashed;
+  color: #888;
+}
+
+.chip-action {
+  font-size: 0.7rem;
+  background: #5cff8a;
+  color: #000;
+  padding: 1px 3px;
+  font-weight: bold;
+}
+
+.agent-callsign-tag {
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.agent-callsign-tag.red {
+  color: #ff5c5c;
+}
+
+.agent-callsign-tag.blue {
+  color: #4de1ff;
 }
 
 .approval-task {
@@ -411,6 +930,16 @@ h1.title {
   line-height: 1.2;
 }
 
+.proposed-command {
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+  padding: 6px;
+  border: 1px solid #56715e;
+  color: #b8f5c9;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
 .task-actions {
   display: flex;
   gap: 8px;
@@ -432,4 +961,257 @@ h1.title {
 .task-button:hover {
   background: #fff;
   color: #000;
+}
+
+.agent.attacker {
+  width: 6px;
+  height: 6px;
+  background: var(--projectile-color, #fff);
+  transition: left 100ms ease-in-out, top 100ms ease-in-out;
+}
+
+.team-editor > select {
+  margin-bottom: 10px;
+}
+
+/* Agent swarm pixels */
+.swarm {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.swarm-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+.swarm-pixel {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  pointer-events: auto;
+}
+
+.swarm-pixel i {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.swarm-pixel.red i {
+  background: #ff5c5c;
+}
+
+.swarm-pixel.blue i {
+  background: #0a1a2a;
+  border: 1px solid #5cb3ff;
+}
+
+/* Alliances panel */
+.alliance-box {
+  border: 1px solid var(--border-color);
+  padding: 12px;
+}
+
+.alliance-box label,
+.alliance-box h3 {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.alliance-form {
+  display: flex;
+  gap: 8px;
+}
+
+.alliance-form input,
+.alliance-form select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  background: #000;
+  border: 1px solid #888;
+  color: #fff;
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.alliance-form select {
+  cursor: pointer;
+}
+
+.alliance-form select:focus {
+  border-color: #fff;
+  outline: none;
+}
+
+.alliance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #333;
+  padding: 8px 0;
+}
+
+.alliance-members {
+  color: #bbb;
+  font-size: 1.05rem;
+}
+
+.team-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Alliance colors */
+.castle.allied .icon {
+  border-color: var(--base-color);
+  background: var(--base-color);
+  color: #000;
+}
+
+.castle.allied .name {
+  color: var(--base-color);
+}
+
+.castle.allied .health-bar {
+  border-color: var(--base-color);
+}
+
+.castle.allied .health-fill {
+  background: var(--base-color);
+}
+
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid #555;
+  cursor: pointer;
+}
+
+.castle.enemy:not(.allied) .icon {
+  border-color: #777;
+  color: #aaa;
+}
+
+.castle.enemy:not(.allied) .name {
+  color: #aaa;
+}
+
+.castle.enemy:not(.allied) .health-fill {
+  background: #888;
+}
+
+.castle.self:not(.allied) .icon {
+  border: 3px solid #fff;
+  color: #fff;
+  font-weight: bold;
+}
+
+.castle.self:not(.allied) .name {
+  color: #fff;
+  font-weight: bold;
+}
+
+.castle.self:not(.allied) .health-fill {
+  background: #fff;
+}
+
+.return-lobby-button {
+  margin-top: 10px;
+}
+
+.victory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.88);
+}
+
+.victory-card {
+  width: min(620px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 2px solid #fff;
+  padding: 24px;
+  background: #050505;
+}
+
+.victory-card h2 {
+  margin-bottom: 12px;
+  font-size: 2rem;
+}
+
+.victory-heading {
+  margin-bottom: 16px;
+  color: #ffe14d;
+  font-size: 1.3rem;
+}
+
+.ladder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.ladder-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #444;
+  padding: 8px 4px;
+  color: #999;
+}
+
+.ladder-list li.ladder-winner {
+  border-color: #ffe14d;
+  color: #fff;
+}
+
+.ladder-rank {
+  flex: 0 0 36px;
+}
+
+.ladder-player {
+  flex: 1;
+}
+
+.swatch.selected {
+  border-color: #fff;
+}
+
+.swatch:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.alliance-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
 }
